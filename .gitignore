@@ -1,0 +1,24 @@
+# OpenCode Station .gitignore
+# Сделано Антоном Ковалкиным все права защищены.
+
+# Large binaries exceeding GitHub 100MB file limit
+bin/opencode-bin
+bin/opencode-bin.bak
+*.bak
+
+# Temporary and runtime logs
+*.tmp
+*.log
+*.pid
+
+# OS and IDE files
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class

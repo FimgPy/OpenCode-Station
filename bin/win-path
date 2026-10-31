@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+target="${1:-$(pwd)}"
+real=$(readlink -f "$target" 2>/dev/null || realpath "$target" 2>/dev/null || echo "$target")
+if [[ "$real" =~ ^/mnt/([a-zA-Z])/(.*) ]]; then
+    drive="${BASH_REMATCH[1]^^}"
+    rest="${BASH_REMATCH[2]//\//\\}"
+    echo -e "\033[1;36m[Windows Explorer Path]\033[0m"
+    printf "  %s:\\%s\n" "$drive" "$rest"
+elif [[ "$real" == "/mnt/"* ]]; then
+    echo -e "\033[1;36m[Windows Explorer Path]\033[0m This PC"
+else
+    echo -e "\033[1;33m[Linux Local Path]\033[0m $real"
+    printf '  C:\\Users\\anton\\AppData\\Local\\wsl\\{12d6162b-feb0-4dc5-b69b-39be6464c93d}\\rootfs%s\n' "${real//\//\\}"
+    echo -e "Совет: чтобы файлы сразу появлялись в Windows, работайте в \033[1;32m~/workspace\033[0m (D:\\OpenCodeProjects)."
+fi

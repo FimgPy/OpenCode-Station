@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Вывод дерева папок и файлов.
+Сделано Антоном Ковалкиным все права защищены.
+"""
+import os
+import sys
+
+def print_tree(dir_path, prefix="", max_depth=3, current_depth=0):
+    if current_depth >= max_depth:
+        return
+    try:
+        entries = sorted(os.scandir(dir_path), key=lambda e: (not e.is_dir(), e.name.lower()))
+    except Exception:
+        return
+
+    # Filter out noisy hidden files, allow project files
+    entries = [e for e in entries if not e.name.startswith(".") or e.name in [".config", ".gitignore"]]
+    count = len(entries)
+
+    for i, entry in enumerate(entries):
+        is_last = (i == count - 1)
+        connector = "└── " if is_last else "├── "
+        child_prefix = "    " if is_last else "│   "
+
+        if entry.is_symlink():
+            target = os.readlink(entry.path)
+            print(f"{prefix}{connector}[LINK] {entry.name} -> {target}")
+        elif entry.is_dir():
+            print(f"{prefix}{connector}[DIR]  {entry.name}")
+            print_tree(entry.path, prefix + child_prefix, max_depth, current_depth + 1)
+        else:
+            print(f"{prefix}{connector}{entry.name}")
+
+def main():
+    target = "."
+    args = [a for a in sys.argv[1:] if not a.startswith("-") and not a.startswith("/?")]
+
+    if args:
+        target = args[0]
+        if target.lower() == "linux":
+            target = "/home/dev"
+
+    target = target.replace("\\", "/")
+    if len(target) >= 2 and target[1] == ':':
+        drive = target[0].lower()
+        rest = target[2:].lstrip("/")
+        target = f"/mnt/{drive}/{rest}"
+
+    target = os.path.expanduser(target)
+    abs_target = os.path.abspath(target)
+    print(f"\nСтруктура папки: {abs_target}")
+    print("Сделано Антоном Ковалкиным все права защищены.\n")
+    print(os.path.basename(abs_target) or abs_target)
+    print_tree(abs_target)
+    print("")
+
+if __name__ == "__main__":
+    main()

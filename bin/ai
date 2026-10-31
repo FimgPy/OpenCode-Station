@@ -1,0 +1,9 @@
+#!/bin/bash
+# CLI command runner for OpenCode
+# Сделано Антоном Ковалкиным все права защищены.
+if [ $# -eq 0 ]; then
+    exec /usr/local/bin/opencode
+else
+    PROMPT="$*"
+    exec /usr/local/bin/opencode run "$PROMPT"
+fi

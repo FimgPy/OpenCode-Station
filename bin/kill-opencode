@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+OpenCode Graceful Stopper & Terminal Restorer v2.7
+Сделано Антоном Ковалкиным все права защищены.
+"""
+import os
+import sys
+import time
+import signal
+import glob
+
+def kill_opencode():
+    # 1. Find OpenCode processes (NEVER kill opencode-gui-server or ttyd)
+    pids_to_kill = []
+    for pid_str in os.listdir("/proc"):
+        if not pid_str.isdigit():
+            continue
+        pid = int(pid_str)
+        if pid == os.getpid():
+            continue
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                cmd = f.read().decode("utf-8", "ignore").replace("\x00", " ")
+            if "opencode-gui-server" in cmd or "ttyd" in cmd:
+                continue
+            if "opencode-bin" in cmd or ("/usr/local/bin/opencode" in cmd and "opencode-gui-server" not in cmd):
+                pids_to_kill.append(pid)
+        except Exception:
+            continue
+
+    # Graceful stop: SIGINT first
+    for pid in pids_to_kill:
+        try:
+            os.kill(pid, signal.SIGINT)
+        except Exception:
+            pass
+
+    if pids_to_kill:
+        time.sleep(0.12)
+        for pid in pids_to_kill:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except Exception:
+                pass
+
+        time.sleep(0.1)
+        for pid in pids_to_kill:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except Exception:
+                pass
+
+    # 2. Find all active pseudo-terminals
+    pts_set = set()
+    for p in glob.glob("/dev/pts/*"):
+        if p != "/dev/pts/ptmx":
+            pts_set.add(p)
+
+    for fd_link in glob.glob("/proc/*/fd/*"):
+        try:
+            target = os.readlink(fd_link)
+            if target.startswith("/dev/pts/") and target != "/dev/pts/ptmx":
+                pts_set.add(target)
+        except Exception:
+            continue
+
+    # 3. Restore each active terminal:
+    # Disable all mouse reporting (?1000..1016), exit alternate buffer (?1049/?47),
+    # disable bracketed paste (?2004), show cursor, Ctrl+C twice, Ctrl+U to clear buffer, cls to clear screen
+    reset_seq = (
+        b"\x1b[?1000l\x1b[?1001l\x1b[?1002l\x1b[?1003l\x1b[?1004l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l"
+        b"\x1b[?1049l\x1b[?47l\x1b[?2004l\x1b[?1l\x1b[?25h\x1b[0m\x03\x03\x15cls\r"
+    )
+
+    for pts in pts_set:
+        try:
+            fd = os.open(pts, os.O_WRONLY | os.O_NOCTTY | os.O_NONBLOCK)
+            os.write(fd, reset_seq)
+            os.close(fd)
+        except Exception:
+            pass
+
+    print(f"[+] OpenCode остановлен (процессов: {len(pids_to_kill)}). Командная строка CMD восстановлена.")
+
+if __name__ == "__main__":
+    kill_opencode()

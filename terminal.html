@@ -1,0 +1,1955 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenCode Station — Сделано Антоном Ковалкиным</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#ecfeff',
+              100: '#cffafe',
+              400: '#22d3ee',
+              500: '#06b6d4',
+              600: '#0891b2',
+              900: '#164e63',
+            },
+            dark: {
+              900: '#090d16',
+              850: '#0d1322',
+              800: '#111827',
+              750: '#182234',
+              700: '#1f2937',
+              600: '#374151',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #090d16;
+      color: #e2e8f0;
+      overflow-x: hidden;
+    }
+    
+    .font-mono {
+      font-family: 'Fira Code', Consolas, monospace;
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0d1322;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1f2937;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #374151;
+    }
+
+    .glass-card {
+      background: rgba(17, 24, 39, 0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+    }
+    .glass-card:hover {
+      border-color: rgba(6, 182, 212, 0.3);
+    }
+
+    .tab-active {
+      background: #0891b2;
+      color: #ffffff;
+      box-shadow: 0 0 15px rgba(8, 145, 178, 0.4);
+    }
+
+    .pulse-dot {
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between">
+
+  <!-- ================= TOP HEADER ================= -->
+  <header class="bg-dark-850 border-b border-gray-800 sticky top-0 z-40 px-4 py-3 shadow-lg">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+      
+      <!-- Brand Logo & Attribution -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-lg bg-gradient-to-tr from-cyan-600 to-blue-500 flex items-center justify-center shadow-lg shadow-cyan-500/20 text-white font-bold text-xl">
+          <i class="fa-solid fa-terminal"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="text-lg font-bold tracking-tight text-white">OPENCODE <span class="text-cyan-400">STATION</span></span>
+            <span class="text-xs px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 font-mono">v2.5</span>
+          </div>
+          <div class="text-xs text-gray-400 flex items-center gap-1.5">
+            <span>Сделано Антоном Ковалкиным</span>
+            <span class="text-gray-600">•</span>
+            <span class="text-emerald-400 font-medium">Все права защищены</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <nav class="flex items-center bg-dark-900 p-1 rounded-xl border border-gray-800 text-sm font-medium">
+        <button onclick="switchTab('envs')" id="nav-envs" class="tab-btn px-4 py-2 rounded-lg flex items-center gap-2 transition tab-active">
+          <i class="fa-solid fa-cubes text-cyan-400"></i>
+          <span>Среды и Сессии</span>
+          <span id="badge-envs-count" class="ml-1 text-xs px-1.5 py-0.2 rounded-full bg-cyan-950 text-cyan-300 font-mono">2</span>
+        </button>
+        <button onclick="switchTab('files')" id="nav-files" class="tab-btn px-4 py-2 rounded-lg flex items-center gap-2 transition text-gray-300 hover:text-white hover:bg-dark-750">
+          <i class="fa-solid fa-folder-tree text-amber-400"></i>
+          <span>Файловый проводник</span>
+        </button>
+        <button onclick="switchTab('terminal')" id="nav-terminal" class="tab-btn px-4 py-2 rounded-lg flex items-center gap-2 transition text-gray-300 hover:text-white hover:bg-dark-750">
+          <i class="fa-solid fa-square-terminal text-emerald-400"></i>
+          <span>Терминал CMD</span>
+        </button>
+        <button onclick="switchTab('proxy')" id="nav-proxy" class="tab-btn px-4 py-2 rounded-lg flex items-center gap-2 transition text-gray-300 hover:text-white hover:bg-dark-750">
+          <i class="fa-solid fa-shield-halved text-purple-400"></i>
+          <span>Прокси и Сеть</span>
+          <span id="badge-proxy-status" class="w-2 h-2 rounded-full bg-gray-500"></span>
+        </button>
+      </nav>
+
+      <!-- System Controls & Status -->
+      <div class="flex items-center gap-2">
+        <!-- Emergency OpenCode Exit Button -->
+        <button onclick="killOpenCodeProcess()" class="px-3 py-1.5 rounded-lg bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800 text-xs font-medium flex items-center gap-1.5 shadow transition" title="Принудительно выйти из OpenCode и вернуться в CMD">
+          <i class="fa-solid fa-stop text-rose-400"></i>
+          <span>Выйти из OpenCode</span>
+        </button>
+
+        <!-- Active Env Pill -->
+        <div class="hidden sm:flex items-center gap-2 bg-dark-800 px-3 py-1.5 rounded-lg border border-gray-700 text-xs">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></span>
+          <span class="text-gray-400">Среда:</span>
+          <span id="pill-active-env" class="font-bold text-cyan-300 font-mono">default</span>
+        </div>
+
+        <!-- Refresh Button -->
+        <button onclick="refreshAll()" title="Обновить статус" class="p-2 rounded-lg bg-dark-800 border border-gray-700 hover:bg-dark-700 hover:text-cyan-400 transition text-gray-300 text-sm">
+          <i class="fa-solid fa-arrows-rotate" id="refresh-icon"></i>
+        </button>
+      </div>
+
+    </div>
+  </header>
+
+  <!-- ================= MAIN CONTENT ================= -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6">
+
+    <!-- ================= TAB 1: ENVIRONMENTS & SESSIONS ================= -->
+    <section id="tab-envs" class="tab-content space-y-6">
+      
+      <!-- Top Overview Bar -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="glass-card rounded-xl p-4 flex items-center justify-between">
+          <div>
+            <div class="text-xs uppercase tracking-wider text-gray-400">Автономных сред</div>
+            <div id="stat-total-envs" class="text-2xl font-bold font-mono text-white mt-1">2</div>
+            <div class="text-xs text-emerald-400 mt-0.5">Работают внутри Linux (ext4)</div>
+          </div>
+          <div class="w-12 h-12 rounded-xl bg-cyan-950/60 border border-cyan-800 text-cyan-400 flex items-center justify-center text-xl">
+            <i class="fa-solid fa-server"></i>
+          </div>
+        </div>
+
+        <div class="glass-card rounded-xl p-4 flex items-center justify-between">
+          <div>
+            <div class="text-xs uppercase tracking-wider text-gray-400">Активная среда</div>
+            <div id="stat-active-env" class="text-2xl font-bold font-mono text-emerald-400 mt-1">default</div>
+            <div class="text-xs text-gray-500 mt-0.5">Рабочая папка: /home/dev/workspace</div>
+          </div>
+          <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-emerald-800 text-emerald-400 flex items-center justify-center text-xl">
+            <i class="fa-solid fa-circle-check"></i>
+          </div>
+        </div>
+
+        <div class="glass-card rounded-xl p-4 flex items-center justify-between">
+          <div>
+            <div class="text-xs uppercase tracking-wider text-gray-400">Изоляция файлов</div>
+            <div class="text-2xl font-bold font-mono text-cyan-300 mt-1">Включена</div>
+            <div class="text-xs text-gray-500 mt-0.5">Файлы не пишутся на диск D без команды</div>
+          </div>
+          <div class="w-12 h-12 rounded-xl bg-purple-950/60 border border-purple-800 text-purple-400 flex items-center justify-center text-xl">
+            <i class="fa-solid fa-shield-halved"></i>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Toolbar -->
+      <div class="flex flex-wrap items-center justify-between gap-3 bg-dark-850 p-4 rounded-xl border border-gray-800">
+        <div>
+          <h2 class="text-lg font-bold text-white flex items-center gap-2">
+            <i class="fa-solid fa-layer-group text-cyan-400"></i>
+            Реестр сред и активных сессий OpenCode
+          </h2>
+          <p class="text-xs text-gray-400">OpenCode работает в защищенной папке Linux. Используйте кнопку «Экспорт в Windows» для переноса файлов на диск D.</p>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button onclick="openNewEnvModal()" class="px-4 py-2 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-medium text-sm flex items-center gap-2 shadow-lg shadow-cyan-600/20 transition">
+            <i class="fa-solid fa-plus"></i>
+            <span>Создать анонимную среду</span>
+          </button>
+          <button onclick="purgeEnvironments()" class="px-3 py-2 rounded-lg bg-dark-800 hover:bg-rose-950/40 hover:text-rose-400 text-gray-400 border border-gray-700 text-sm transition" title="Очистить все дополнительные среды">
+            <i class="fa-solid fa-trash-can"></i>
+            <span class="hidden sm:inline ml-1">Очистить все</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Environments Grid (В РЯД / КАРТОЧКАМИ) -->
+      <div id="envs-grid" class="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <!-- Dynamic Cards Injected Here -->
+        <div class="col-span-full py-12 text-center text-gray-500">
+          <i class="fa-solid fa-circle-notch fa-spin text-3xl mb-3 text-cyan-500"></i>
+          <p>Загрузка реестра сред и сессий...</p>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ================= TAB 2: FILE EXPLORER ================= -->
+    <section id="tab-files" class="tab-content hidden space-y-4">
+      
+      <!-- Explorer Top Bar: Quick Jump Paths -->
+      <div class="bg-dark-850 p-3 rounded-xl border border-gray-800 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
+          <span class="text-xs font-semibold uppercase tracking-wider text-gray-500 px-1">Рабочие зоны:</span>
+          
+          <button onclick="navigateFiles('/home/dev/workspace')" class="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-emerald-400 border border-gray-700 text-xs font-mono flex items-center gap-1.5 shadow">
+            <i class="fa-brands fa-linux text-emerald-400"></i>
+            <span>Linux Workspace (default)</span>
+          </button>
+
+          <button onclick="navigateFiles('/mnt/d/OpenCodeProjects')" class="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-cyan-300 border border-gray-700 text-xs font-mono flex items-center gap-1.5">
+            <i class="fa-brands fa-windows text-blue-400"></i>
+            <span>D:\OpenCodeProjects (Windows)</span>
+          </button>
+
+          <button onclick="navigateFiles('/var/envs')" class="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-gray-300 border border-gray-700 text-xs font-mono flex items-center gap-1.5">
+            <i class="fa-solid fa-boxes-stacked text-purple-400"></i>
+            <span>/var/envs (Среды)</span>
+          </button>
+
+          <div id="quick-env-buttons" class="flex items-center gap-1.5">
+            <!-- Dynamic env folder buttons -->
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button onclick="openInWindowsExplorer()" class="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-cyan-950/40 hover:text-cyan-400 border border-gray-700 text-xs font-medium text-gray-300 transition flex items-center gap-1.5" title="Открыть в Проводнике Windows">
+            <i class="fa-solid fa-arrow-up-right-from-square"></i>
+            <span>Открыть в Windows</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Action Toolbar (Export / Import / Batch) -->
+      <div class="bg-dark-850 p-4 rounded-xl border border-gray-800 flex flex-wrap items-center justify-between gap-3">
+        <!-- Breadcrumbs -->
+        <div class="flex items-center gap-2 flex-1 min-w-[260px]">
+          <button onclick="navigateUp()" title="На уровень выше" class="p-2 rounded-lg bg-dark-800 hover:bg-dark-700 text-gray-300 border border-gray-700 text-sm">
+            <i class="fa-solid fa-arrow-up"></i>
+          </button>
+          <div id="breadcrumbs" class="flex items-center gap-1.5 text-sm font-mono overflow-x-auto py-1 px-2 bg-dark-900 rounded-lg border border-gray-800 flex-1">
+            <span class="text-gray-500">/</span>
+          </div>
+        </div>
+
+        <!-- Global Explorer Actions -->
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Export All to Windows -->
+          <button onclick="exportCurrentFolderToWindows()" class="px-3.5 py-2 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-medium flex items-center gap-1.5 shadow transition" title="Скопировать все файлы текущей папки в D:\OpenCodeProjects">
+            <i class="fa-solid fa-share-from-square"></i>
+            <span>Экспорт в Windows (D:)</span>
+          </button>
+
+          <!-- Download ZIP -->
+          <button onclick="downloadFolderAsZip()" class="px-3 py-2 rounded-lg bg-dark-800 hover:bg-dark-750 text-cyan-300 border border-gray-700 text-xs font-medium flex items-center gap-1.5 transition" title="Скачать всю папку как ZIP-архив">
+            <i class="fa-solid fa-file-zipper text-cyan-400"></i>
+            <span>Скачать ZIP</span>
+          </button>
+
+          <!-- Upload Files -->
+          <input type="file" id="file-upload-input" multiple class="hidden" onchange="handleFileInput(this)">
+          <button onclick="document.getElementById('file-upload-input').click()" class="px-3 py-2 rounded-lg bg-dark-800 hover:bg-dark-750 border border-gray-700 text-xs font-medium text-gray-300 flex items-center gap-1.5 transition">
+            <i class="fa-solid fa-cloud-arrow-up text-blue-400"></i>
+            <span>Загрузить</span>
+          </button>
+
+          <!-- New Folder & File -->
+          <button onclick="promptCreateFolder()" class="p-2 rounded-lg bg-dark-800 hover:bg-dark-700 border border-gray-700 text-xs text-amber-400 transition" title="Создать папку">
+            <i class="fa-solid fa-folder-plus"></i>
+          </button>
+          <button onclick="promptCreateFile()" class="p-2 rounded-lg bg-dark-800 hover:bg-dark-700 border border-gray-700 text-xs text-emerald-400 transition" title="Создать файл">
+            <i class="fa-solid fa-file-circle-plus"></i>
+          </button>
+          <button onclick="refreshFiles()" class="p-2 rounded-lg bg-dark-800 hover:bg-dark-700 border border-gray-700 text-xs text-gray-300 transition" title="Обновить список">
+            <i class="fa-solid fa-rotate-right"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Sticky Batch Selection Floating Bar (Appears when 1+ files checked) -->
+      <div id="selection-bar" class="hidden bg-cyan-950/95 border-2 border-cyan-500/80 rounded-xl p-3 shadow-2xl flex flex-wrap items-center justify-between gap-3 text-xs font-mono transition-all">
+        <div class="flex items-center gap-3">
+          <span class="w-3 h-3 rounded-full bg-cyan-400 pulse-dot"></span>
+          <span id="selected-count-text" class="text-white font-bold">Выбрано: 0 файлов</span>
+        </div>
+        
+        <div class="flex items-center gap-2">
+          <button onclick="exportSelectedFiles()" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold flex items-center gap-1.5 transition shadow">
+            <i class="fa-solid fa-file-export"></i>
+            <span>Экспортировать выбранные в Windows (D:)</span>
+          </button>
+          <button onclick="downloadSelectedAsZip()" class="px-3 py-1.5 rounded-lg bg-cyan-800 hover:bg-cyan-700 text-cyan-200 flex items-center gap-1.5 transition">
+            <i class="fa-solid fa-file-zipper"></i>
+            <span>Скачать выбранные (ZIP)</span>
+          </button>
+          <button onclick="deleteSelectedFiles()" class="px-3 py-1.5 rounded-lg bg-rose-900/80 hover:bg-rose-800 text-rose-200 flex items-center gap-1.5 transition">
+            <i class="fa-regular fa-trash-can"></i>
+            <span>Удалить выбранные</span>
+          </button>
+          <button onclick="clearSelection()" class="p-1.5 rounded-lg hover:bg-cyan-900 text-gray-400 hover:text-white" title="Снять выбор">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Drag & Drop Explorer Area -->
+      <div id="dropzone" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)" class="glass-card rounded-xl border border-gray-800 p-4 transition duration-200 relative min-h-[420px]">
+        
+        <!-- Drag Over Overlay -->
+        <div id="drop-overlay" class="hidden absolute inset-0 bg-cyan-950/85 backdrop-blur-sm border-2 border-cyan-400 rounded-xl z-20 flex flex-col items-center justify-center text-cyan-300">
+          <i class="fa-solid fa-cloud-arrow-down text-5xl mb-3 animate-bounce"></i>
+          <p class="text-lg font-bold">Отпустите файлы для мгновенной загрузки</p>
+          <p class="text-xs text-cyan-400/80 mt-1">Файлы будут сохранены в текущую среду Linux</p>
+        </div>
+
+        <!-- Files Table -->
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm">
+            <thead class="text-xs uppercase text-gray-400 border-b border-gray-800 select-none">
+              <tr>
+                <th class="py-3 px-3 w-8">
+                  <input type="checkbox" id="master-select-cb" onchange="toggleSelectAll(this.checked)" class="rounded bg-dark-900 border-gray-700 text-cyan-500 focus:ring-0 cursor-pointer">
+                </th>
+                <th class="py-3 px-3">Имя файла / папки</th>
+                <th class="py-3 px-3">Размер</th>
+                <th class="py-3 px-3">Изменен</th>
+                <th class="py-3 px-3 text-right">Действия</th>
+              </tr>
+            </thead>
+            <tbody id="files-list" class="divide-y divide-gray-800/60 font-mono text-xs">
+              <!-- Dynamic Files Rows -->
+            </tbody>
+          </table>
+        </div>
+
+        <div id="files-empty" class="hidden py-16 text-center text-gray-500">
+          <i class="fa-regular fa-folder-open text-4xl mb-2 text-gray-600"></i>
+          <p>В этой папке пока нет файлов.</p>
+          <p class="text-xs text-gray-600 mt-1">Запустите OpenCode или перетащите сюда файлы из Windows.</p>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- ================= TAB 3: TERMINAL ================= -->
+    <section id="tab-terminal" class="tab-content hidden space-y-4">
+      
+      <!-- Terminal Controls & Quick Commands -->
+      <div class="bg-dark-850 p-3 rounded-xl border border-gray-800 flex flex-wrap items-center justify-between gap-3">
+        
+        <!-- Quick Action Buttons -->
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-xs font-semibold uppercase tracking-wider text-gray-500 mr-1">Команды:</span>
+          
+          <button onclick="runInTerminal('opencode\r')" class="px-3 py-1.5 rounded-lg bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-700 text-cyan-300 text-xs font-mono flex items-center gap-1.5 shadow transition">
+            <i class="fa-solid fa-bolt text-cyan-400"></i>
+            <span>opencode</span>
+          </button>
+
+          <button onclick="runInTerminal('opencode -c\r')" class="px-3 py-1.5 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700 text-emerald-300 text-xs font-mono flex items-center gap-1.5 transition" title="Продолжить последнюю сессию">
+            <i class="fa-solid fa-forward-step text-emerald-400"></i>
+            <span>Продолжить сессию</span>
+          </button>
+
+          <button onclick="killOpenCodeProcess()" class="px-3 py-1.5 rounded-lg bg-rose-950/80 hover:bg-rose-900 border border-rose-800 text-rose-300 text-xs font-mono flex items-center gap-1.5 transition" title="Выйти из OpenCode и вернуться в CMD">
+            <i class="fa-solid fa-stop text-rose-400"></i>
+            <span>Выйти из OpenCode</span>
+          </button>
+
+          <button onclick="reloadTerminalIframe()" class="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-750 border border-gray-700 text-yellow-300 text-xs font-mono flex items-center gap-1.5 transition" title="Полный перезапуск терминала CMD">
+            <i class="fa-solid fa-arrows-rotate text-yellow-400"></i>
+            <span>Перезапустить CMD</span>
+          </button>
+          
+          <button onclick="runInTerminal('export all\r')" class="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-750 border border-gray-700 text-teal-300 text-xs font-mono flex items-center gap-1.5 transition" title="Экспортировать все файлы в D:\OpenCodeProjects">
+            <i class="fa-solid fa-share-from-square"></i>
+            <span>export all</span>
+          </button>
+
+          <button onclick="runInTerminal('myip\r')" class="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-750 border border-gray-700 text-gray-300 text-xs font-mono flex items-center gap-1.5 transition">
+            <i class="fa-solid fa-globe text-cyan-400"></i>
+            <span>myip</span>
+          </button>
+
+          <button onclick="runInTerminal('dir\r')" class="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-750 border border-gray-700 text-gray-300 text-xs font-mono flex items-center gap-1.5 transition">
+            <i class="fa-regular fa-folder text-blue-400"></i>
+            <span>dir</span>
+          </button>
+
+          <button onclick="runInTerminal('cls\r')" class="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-750 border border-gray-700 text-gray-300 text-xs font-mono flex items-center gap-1.5 transition">
+            <i class="fa-solid fa-eraser text-gray-400"></i>
+            <span>cls</span>
+          </button>
+
+          <button onclick="pasteClipboardToTerminal()" class="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-750 border border-gray-700 text-emerald-400 text-xs font-mono flex items-center gap-1.5 transition" title="Вставить текст из буфера обмена (Ctrl+V)">
+            <i class="fa-regular fa-clipboard"></i>
+            <span>Вставить (Ctrl+V)</span>
+          </button>
+        </div>
+
+        <!-- Environment Selector for Terminal -->
+        <div class="flex items-center gap-2 text-xs">
+          <span class="text-gray-400">Среда терминала:</span>
+          <select id="terminal-env-select" onchange="switchEnvInTerminal(this.value)" class="bg-dark-900 border border-gray-700 rounded-lg px-2.5 py-1.5 font-mono text-cyan-300 focus:outline-none focus:border-cyan-500">
+            <option value="default">default</option>
+          </select>
+        </div>
+
+      </div>
+
+      <!-- Embedded Terminal Iframe -->
+      <div class="rounded-xl overflow-hidden border border-gray-800 shadow-2xl bg-black relative" style="height: 600px;">
+        <iframe id="terminal-frame" src="http://localhost:7681" class="w-full h-full border-none" allow="clipboard-read; clipboard-write"></iframe>
+      </div>
+
+    </section>
+
+    <!-- ================= TAB 4: PROXY & NETWORK ================= -->
+    <section id="tab-proxy" class="tab-content hidden space-y-6">
+      
+      <!-- Top Selector Toolbar: Select Environment for Proxy -->
+      <div class="glass-card rounded-2xl p-5 border border-purple-900/50 bg-gradient-to-r from-dark-850 via-dark-800 to-purple-950/30 flex flex-wrap items-center justify-between gap-4 shadow-xl">
+        <div class="flex items-center gap-3">
+          <div class="w-12 h-12 rounded-xl bg-purple-950/80 border border-purple-700/60 flex items-center justify-center text-purple-400 text-xl shadow-inner">
+            <i class="fa-solid fa-satellite-dish"></i>
+          </div>
+          <div>
+            <div class="text-base font-bold text-white flex items-center gap-2">
+              <span>Управление Прокси по Средам</span>
+              <span id="proxy-current-env-badge" class="text-xs px-2.5 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-800 font-mono">default</span>
+            </div>
+            <p class="text-xs text-gray-400 mt-0.5">Каждая среда настраивается автономно: собственный HTTP/SOCKS5 прокси или прямое подключение</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <span class="text-xs text-gray-300 font-medium">Среда:</span>
+          <select id="proxy-env-select" onchange="onProxyEnvSelected(this.value)" class="bg-dark-900 border border-purple-800/80 text-cyan-300 rounded-xl px-3.5 py-2 text-sm font-mono focus:outline-none focus:border-cyan-400 shadow">
+            <!-- Populated dynamically -->
+          </select>
+          <button onclick="checkSelectedEnvIp()" class="py-2 px-3.5 rounded-xl bg-dark-800 hover:bg-dark-750 border border-gray-700 text-cyan-300 text-xs font-medium flex items-center gap-1.5 transition shadow">
+            <i class="fa-solid fa-rotate"></i>
+            <span>Проверить IP</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Network Status Card & Proxy Configuration Grid -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        
+        <!-- Left: Environment Network Passport -->
+        <div class="glass-card rounded-2xl p-6 space-y-4 border border-gray-800 bg-dark-850/80 shadow-lg">
+          <div class="flex items-center justify-between">
+            <h3 class="text-base font-bold text-white flex items-center gap-2">
+              <i class="fa-solid fa-globe text-cyan-400"></i>
+              <span>Сетевой статус среды [<span id="proxy-env-title" class="text-cyan-300 font-mono">default</span>]</span>
+            </h3>
+            <span id="proxy-status-pill" class="text-xs px-3 py-1 rounded-full font-mono bg-gray-800 text-gray-400">Проверка...</span>
+          </div>
+
+          <div class="p-4 bg-dark-900 rounded-xl border border-gray-800 space-y-3 font-mono text-sm">
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Публичный IP:</span>
+              <span id="net-query" class="text-cyan-300 font-bold text-base">...</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Страна / Локация:</span>
+              <span id="net-country" class="text-white">...</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Город:</span>
+              <span id="net-city" class="text-gray-300">...</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Провайдер / ASN:</span>
+              <span id="net-org" class="text-gray-400 text-xs">...</span>
+            </div>
+            <div class="flex items-center justify-between pt-2 border-t border-gray-800 text-xs">
+              <span class="text-gray-500">Режим среды:</span>
+              <span id="net-proxy-active" class="text-gray-400">Выключено</span>
+            </div>
+          </div>
+
+          <button onclick="checkSelectedEnvIp()" class="w-full py-2.5 rounded-xl bg-dark-800 hover:bg-dark-750 border border-gray-700 text-cyan-300 font-medium text-sm flex items-center justify-center gap-2 transition shadow">
+            <i class="fa-solid fa-rotate"></i>
+            <span>Проверить сетевой статус среды (myip)</span>
+          </button>
+        </div>
+
+        <!-- Right: Proxy Configuration Panel for Selected Env -->
+        <div class="glass-card rounded-2xl p-6 space-y-4 border border-gray-800 bg-dark-850/80 shadow-lg">
+          <div class="flex items-center justify-between">
+            <h3 class="text-base font-bold text-white flex items-center gap-2">
+              <i class="fa-solid fa-sliders text-purple-400"></i>
+              <span>Конфигурация Прокси для [<span id="proxy-config-env-title" class="text-purple-300 font-mono">default</span>]</span>
+            </h3>
+            <span class="text-[11px] px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800 font-mono">ИЗОЛИРОВАНО</span>
+          </div>
+
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">Прокси URL (HTTP / HTTPS / SOCKS5):</label>
+              <input type="text" id="proxy-url-input" placeholder="http://login:password@host:port или socks5://..." class="w-full bg-dark-900 border border-gray-700 rounded-xl px-3.5 py-2.5 font-mono text-sm text-cyan-300 focus:outline-none focus:border-cyan-500 shadow-inner">
+              <p class="text-[11px] text-gray-500 mt-1">Пример: http://user:pass@185.220.101.5:8080 или socks5://127.0.0.1:9050</p>
+            </div>
+
+            <div class="flex items-center justify-between p-3 bg-dark-900 rounded-xl border border-gray-800">
+              <div>
+                <div class="text-sm font-medium text-white">Включить проксирование</div>
+                <div class="text-xs text-gray-400">Маршрутизировать OpenCode и внешние запросы через этот прокси</div>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="proxy-toggle-switch" onchange="toggleSelectedEnvProxy(this.checked)" class="sr-only peer">
+                <div class="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+              </label>
+            </div>
+
+            <div class="flex items-center gap-2 pt-1">
+              <button onclick="saveSelectedEnvProxy()" class="flex-1 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-medium text-sm flex items-center justify-center gap-2 transition shadow">
+                <i class="fa-solid fa-floppy-disk"></i>
+                <span>Применить для этой среды</span>
+              </button>
+              <button onclick="disableSelectedEnvProxy()" class="px-4 py-2.5 rounded-xl bg-dark-800 hover:bg-dark-750 border border-gray-700 text-gray-300 text-sm transition">
+                <span>Отключить</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="p-3 bg-cyan-950/30 rounded-xl border border-cyan-900/50 text-xs text-cyan-300/90 leading-relaxed flex items-start gap-2">
+            <i class="fa-solid fa-shield-halved text-cyan-400 mt-0.5"></i>
+            <div>Внутренний трафик демонов OpenCode автоматически защищен параметром <span class="font-mono text-white">NO_PROXY</span>, что полностью исключает ошибки 403 Forbidden.</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Bottom Card: All Environments Proxy Summary Table -->
+      <div class="glass-card rounded-2xl p-6 border border-gray-800 bg-dark-850/80 shadow-lg space-y-4">
+        <div class="flex items-center justify-between">
+          <h3 class="text-base font-bold text-white flex items-center gap-2">
+            <i class="fa-solid fa-table-list text-cyan-400"></i>
+            <span>Сводная таблица проксирования всех сред</span>
+          </h3>
+          <span class="text-xs text-gray-400">Быстрое переключение и настройка</span>
+        </div>
+
+        <div class="overflow-x-auto rounded-xl border border-gray-800">
+          <table class="w-full text-left text-xs font-mono">
+            <thead class="bg-dark-900 text-gray-400 border-b border-gray-800 uppercase tracking-wider text-[11px]">
+              <tr>
+                <th class="py-3 px-4">Среда</th>
+                <th class="py-3 px-4">Статус прокси</th>
+                <th class="py-3 px-4">URL Прокси</th>
+                <th class="py-3 px-4 text-right">Действия</th>
+              </tr>
+            </thead>
+            <tbody id="proxy-summary-tbody" class="divide-y divide-gray-800/60 bg-dark-850">
+              <!-- Populated dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- ================= MODALS ================= -->
+
+  <!-- Modal: Create New Environment -->
+  <div id="modal-new-env" class="hidden fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="glass-card bg-dark-850 rounded-2xl border border-gray-700 p-6 max-w-md w-full shadow-2xl space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-cube text-cyan-400"></i>
+          <span>Новая анонимная среда</span>
+        </h3>
+        <button onclick="closeNewEnvModal()" class="text-gray-400 hover:text-white text-lg">&times;</button>
+      </div>
+
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">Имя среды:</label>
+          <div class="flex items-center gap-2">
+            <input type="text" id="new-env-name" placeholder="Например: quantum-42" class="flex-1 bg-dark-900 border border-gray-700 rounded-lg px-3 py-2 text-cyan-300 font-mono text-sm focus:outline-none focus:border-cyan-500">
+            <button onclick="generateRandomEnvName()" class="px-3 py-2 rounded-lg bg-dark-800 hover:bg-dark-700 border border-gray-700 text-xs text-gray-300 transition" title="Сгенерировать случайное имя">
+              <i class="fa-solid fa-dice"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="p-3 bg-dark-900/70 rounded-lg border border-gray-800 text-xs text-gray-400 space-y-1">
+          <p class="font-medium text-gray-300">Что произойдет при создании:</p>
+          <p>• Сгенерируется полностью новый Machine ID и Hostname.</p>
+          <p>• Создастся изолированная рабочая папка Linux: <span class="font-mono text-emerald-400">/var/envs/&lt;имя&gt;/workspace</span>.</p>
+          <p>• Файлы останутся в Linux и не попадут на диск D без вашего экспорта.</p>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-2">
+        <button onclick="closeNewEnvModal()" class="px-4 py-2 rounded-lg bg-dark-800 text-gray-300 hover:bg-dark-700 text-sm">Отмена</button>
+        <button onclick="submitNewEnv()" class="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-sm flex items-center gap-1.5 shadow">
+          <i class="fa-solid fa-plus"></i>
+          <span>Создать среду</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: File Viewer & Editor -->
+  <div id="modal-file-editor" class="hidden fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="glass-card bg-dark-850 rounded-2xl border border-gray-700 p-6 max-w-4xl w-full shadow-2xl flex flex-col h-[85vh]">
+      <div class="flex items-center justify-between pb-3 border-b border-gray-800">
+        <div class="flex items-center gap-2">
+          <i class="fa-regular fa-file-code text-cyan-400 text-lg"></i>
+          <div>
+            <span id="editor-filename" class="font-mono text-sm font-bold text-white">filename.txt</span>
+            <span id="editor-winpath" class="text-xs text-gray-400 block font-mono">D:\...</span>
+          </div>
+        </div>
+        <button onclick="closeFileEditor()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+      </div>
+
+      <div class="flex-1 py-3 overflow-hidden">
+        <textarea id="editor-content" class="w-full h-full bg-dark-900 border border-gray-800 rounded-lg p-4 font-mono text-xs text-gray-200 resize-none focus:outline-none focus:border-cyan-500"></textarea>
+      </div>
+
+      <div class="flex items-center justify-between pt-3 border-t border-gray-800">
+        <span id="editor-status" class="text-xs text-gray-400"></span>
+        <div class="flex items-center gap-2">
+          <button onclick="copyEditorContent()" class="px-3.5 py-2 rounded-lg bg-dark-800 hover:bg-dark-700 border border-gray-700 text-gray-300 text-xs font-mono">
+            <i class="fa-regular fa-copy mr-1"></i> Скопировать
+          </button>
+          <button onclick="saveFileContent()" class="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs flex items-center gap-1.5 shadow">
+            <i class="fa-solid fa-floppy-disk"></i> Сохранить
+          </button>
+          <button onclick="closeFileEditor()" class="px-3.5 py-2 rounded-lg bg-dark-800 text-gray-400 hover:text-white text-xs">Закрыть</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- ================= FOOTER ================= -->
+  <footer class="bg-dark-850 border-t border-gray-800 px-4 py-3 text-xs text-gray-500">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+      <div class="flex items-center gap-2">
+        <span class="text-cyan-400 font-semibold">OpenCode Station</span>
+        <span>•</span>
+        <span>Сделано Антоном Ковалкиным все права защищены</span>
+      </div>
+      <div class="flex items-center gap-3 font-mono text-gray-400">
+        <span>WSL2 Ubuntu</span>
+        <span>|</span>
+        <span>Порт 7682</span>
+        <span>|</span>
+        <span class="text-emerald-400">● Онлайн</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ================= JAVASCRIPT LOGIC ================= -->
+  <script>
+    const API_BASE = window.location.origin.includes('7682') ? window.location.origin : 'http://localhost:7682';
+    let currentEnvs = {};
+    let activeEnv = 'default';
+    let currentPath = '/home/dev/workspace';
+    let editingFilePath = '';
+    let selectedFilePaths = new Set();
+    let currentDirFiles = [];
+
+    // Toast helper
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      const colors = {
+        success: 'border-emerald-600 bg-emerald-950/90 text-emerald-200',
+        error: 'border-rose-600 bg-rose-950/90 text-rose-200',
+        info: 'border-cyan-600 bg-cyan-950/90 text-cyan-200',
+      };
+      const icons = {
+        success: 'fa-circle-check text-emerald-400',
+        error: 'fa-circle-xmark text-rose-400',
+        info: 'fa-circle-info text-cyan-400',
+      };
+      toast.className = `p-3 rounded-xl border shadow-xl flex items-center gap-2 text-xs font-mono transition-all transform duration-300 pointer-events-auto ${colors[type] || colors.info}`;
+      toast.innerHTML = `<i class="fa-solid ${icons[type] || icons.info}"></i> <span>${message}</span>`;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(10px)';
+        setTimeout(() => toast.remove(), 300);
+      }, 3500);
+    }
+
+    // Switch Tabs
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.tab-btn').forEach(el => {
+        el.classList.remove('tab-active');
+        el.classList.add('text-gray-300');
+      });
+
+      const targetTab = document.getElementById(`tab-${tabId}`);
+      const targetNav = document.getElementById(`nav-${tabId}`);
+      if (targetTab && targetNav) {
+        targetTab.classList.remove('hidden');
+        targetNav.classList.add('tab-active');
+        targetNav.classList.remove('text-gray-300');
+      }
+
+      if (tabId === 'files') {
+        loadFiles(currentPath);
+      } else if (tabId === 'proxy') {
+        checkIpStatus();
+      }
+    }
+
+    // Initial Load & Refresh All
+    async function refreshAll() {
+      const icon = document.getElementById('refresh-icon');
+      if (icon) icon.classList.add('fa-spin');
+      try {
+        const res = await fetch(`${API_BASE}/api/status`);
+        const data = await res.json();
+        
+        currentEnvs = data.environments || {};
+        activeEnv = data.active_env || 'default';
+        
+        document.getElementById('pill-active-env').textContent = activeEnv;
+        document.getElementById('stat-active-env').textContent = activeEnv;
+        document.getElementById('stat-total-envs').textContent = Object.keys(currentEnvs).length;
+        document.getElementById('badge-envs-count').textContent = Object.keys(currentEnvs).length;
+
+        renderEnvs(currentEnvs, activeEnv);
+        updateQuickEnvButtons(currentEnvs);
+        updateProxyEnvSelector();
+
+        if (selectedProxyEnv && currentEnvs[selectedProxyEnv]) {
+          onProxyEnvSelected(selectedProxyEnv);
+        } else if (data.network) {
+          updateNetworkUI(data.network, activeEnv);
+        }
+      } catch (err) {
+        console.error("API connect error:", err);
+        showToast("Сервер GUI не отвечает на порту 7682", "error");
+      } finally {
+        if (icon) setTimeout(() => icon.classList.remove('fa-spin'), 500);
+      }
+    }
+
+    // Render Environments & Actual Sessions
+    function renderEnvs(envs, active) {
+      const grid = document.getElementById('envs-grid');
+      const select = document.getElementById('terminal-env-select');
+      grid.innerHTML = '';
+      select.innerHTML = '';
+
+      const envList = Object.values(envs);
+      if (envList.length === 0) {
+        grid.innerHTML = '<div class="col-span-full text-center text-gray-500 py-8">Нет зарегистрированных сред</div>';
+        return;
+      }
+
+      envList.forEach(env => {
+        const isActive = env.name === active;
+        const isDefault = env.name === 'default';
+
+        // Add to terminal select
+        const opt = document.createElement('option');
+        opt.value = env.name;
+        opt.textContent = `${env.name} ${isActive ? '(активная)' : ''}`;
+        if (isActive) opt.selected = true;
+        select.appendChild(opt);
+
+        const card = document.createElement('div');
+        card.className = `glass-card rounded-2xl p-5 border transition flex flex-col justify-between ${isActive ? 'border-cyan-500/70 shadow-lg shadow-cyan-950/40 bg-dark-800' : 'border-gray-800'}`;
+
+        // Sessions list for this environment
+        const sessions = env.sessions || [];
+        const latestSession = env.latest_session;
+
+        let sessionsHtml = '';
+        if (latestSession) {
+          sessionsHtml = `
+            <div class="mt-3 p-3 bg-dark-850 rounded-xl border border-cyan-800/60 text-xs">
+              <div class="flex items-center justify-between mb-1.5">
+                <span class="text-gray-400 font-semibold uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                  <i class="fa-solid fa-bolt text-amber-400"></i>
+                  <span>Актуальная сессия OpenCode:</span>
+                </span>
+                <span class="text-[10px] text-cyan-400 font-mono">${latestSession.id.substring(0, 12)}...</span>
+              </div>
+              <div class="text-white font-medium truncate mb-2.5" title="${latestSession.title}">
+                "${latestSession.title}"
+              </div>
+              <div class="flex items-center gap-2">
+                <button onclick="resumeExactSession('${env.name}', '${latestSession.id}')" class="flex-1 py-1.5 px-2.5 rounded-lg bg-cyan-700 hover:bg-cyan-600 text-white font-medium text-xs flex items-center justify-center gap-1.5 shadow transition">
+                  <i class="fa-solid fa-play"></i>
+                  <span>Продолжить сессию</span>
+                </button>
+                <button onclick="launchNewOpenCodeSession('${env.name}')" class="py-1.5 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs flex items-center gap-1.5 transition shadow" title="Создать абсолютно новую сессию с нуля">
+                  <i class="fa-solid fa-plus"></i>
+                  <span>Новая сессия</span>
+                </button>
+              </div>
+            </div>
+          `;
+        } else {
+          sessionsHtml = `
+            <div class="mt-3 p-3 bg-dark-850 rounded-xl border border-gray-800 text-xs flex items-center justify-between">
+              <span class="text-gray-400">Сессий еще нет</span>
+              <button onclick="launchNewOpenCodeSession('${env.name}')" class="py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium flex items-center gap-1.5 transition shadow">
+                <i class="fa-solid fa-plus"></i>
+                <span>Новая сессия OpenCode</span>
+              </button>
+            </div>
+          `;
+        }
+
+        card.innerHTML = `
+          <div>
+            <!-- Card Header -->
+            <div class="flex items-center justify-between gap-2 mb-3">
+              <div class="flex items-center gap-2">
+                <span class="w-3 h-3 rounded-full ${isActive ? 'bg-emerald-400 pulse-dot' : 'bg-gray-600'}"></span>
+                <span class="font-bold text-lg text-white font-mono">${env.name}</span>
+                ${isDefault ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800 font-mono">DEFAULT</span>' : ''}
+              </div>
+              <span class="text-xs px-2 py-0.5 rounded-full ${isActive ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-dark-900 text-gray-400 border border-gray-800'} font-medium">
+                ${isActive ? 'АКТИВНА' : 'ИЗОЛИРОВАНА'}
+              </span>
+            </div>
+
+            <!-- Path & Passport Info -->
+            <div class="space-y-2 text-xs font-mono bg-dark-900/80 p-3 rounded-xl border border-gray-800/80 mb-2">
+              <div class="flex items-center justify-between">
+                <span class="text-gray-500">Machine ID:</span>
+                <div class="flex items-center gap-1.5">
+                  <span class="text-cyan-300 font-semibold" title="${env.machine_id}">${env.machine_id.substring(0, 10)}...</span>
+                  <button onclick="copyText('${env.machine_id}', 'Machine ID скопирован')" class="text-gray-500 hover:text-cyan-400" title="Скопировать полный ID">
+                    <i class="fa-regular fa-copy"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-gray-500">Папка Linux (Рабочая):</span>
+                <span class="text-emerald-400 font-medium truncate max-w-[200px]" title="${env.workspace}">${env.workspace}</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-gray-500">Папка Win (Экспорт):</span>
+                <span class="text-gray-400 truncate max-w-[200px]" title="${env.workspace_win}">${env.workspace_win}</span>
+              </div>
+              <div class="flex items-center justify-between pt-1 border-t border-gray-800/50">
+                <span class="text-gray-500">Файлов в Linux:</span>
+                <span class="text-amber-400 font-bold">${env.files_count || 0} шт.</span>
+              </div>
+              <div class="flex items-center justify-between pt-1 border-t border-gray-800/50">
+                <span class="text-gray-500">Проксирование:</span>
+                <span class="${env.proxy_enabled ? 'text-emerald-400 font-bold' : 'text-gray-400'} flex items-center gap-1">
+                  <i class="fa-solid fa-satellite-dish text-[10px] ${env.proxy_enabled ? 'text-emerald-400' : 'text-gray-500'}"></i>
+                  <span>${env.proxy_enabled ? 'ВКЛ' : 'Прямое соединение'}</span>
+                </span>
+              </div>
+            </div>
+
+            <!-- Actual OpenCode Session Block -->
+            ${sessionsHtml}
+
+          </div>
+
+          <!-- Card Actions -->
+          <div class="space-y-2 pt-4 border-t border-gray-800/80 mt-4">
+            <div class="grid grid-cols-2 gap-2">
+              <button onclick="exportEnvToWindows('${env.workspace}', '${env.workspace_win}')" class="px-2.5 py-1.5 rounded-lg bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-800 text-emerald-300 text-xs font-medium flex items-center justify-center gap-1.5 transition" title="Скопировать все файлы проекта из Linux в Windows D:">
+                <i class="fa-solid fa-share-from-square"></i>
+                <span>Экспорт в Win (D:)</span>
+              </button>
+              <button onclick="resetEnvCache('${env.name}')" class="px-2.5 py-1.5 rounded-lg bg-dark-750 hover:bg-cyan-950/60 hover:text-cyan-300 hover:border-cyan-700 text-gray-300 border border-gray-700 text-xs font-medium flex items-center justify-center gap-1.5 transition" title="Очистить кэш и сгенерировать новый паспорт устройства">
+                <i class="fa-solid fa-arrows-rotate text-cyan-400"></i>
+                <span>Сброс паспорта</span>
+              </button>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <button onclick="openEnvInFiles('${env.workspace}')" class="flex-1 py-1.5 rounded-lg bg-dark-900 hover:bg-dark-700 border border-gray-800 text-xs font-medium text-cyan-400 flex items-center justify-center gap-1.5 transition">
+                <i class="fa-solid fa-folder-open"></i>
+                <span>Файлы</span>
+              </button>
+              <button onclick="openProxyTabForEnv('${env.name}')" class="px-2.5 py-1.5 rounded-lg bg-dark-900 hover:bg-purple-950/60 hover:text-purple-300 hover:border-purple-800 border border-gray-800 text-xs font-medium text-purple-400 flex items-center gap-1.5 transition" title="Настроить прокси этой среды">
+                <i class="fa-solid fa-satellite-dish"></i>
+                <span>Прокси</span>
+              </button>
+              <button onclick="openFolderInWin('${env.workspace}')" class="p-1.5 rounded-lg bg-dark-900 hover:bg-dark-700 text-gray-400 hover:text-blue-400 border border-gray-800 text-xs transition" title="Открыть папку в Windows Explorer">
+                <i class="fa-brands fa-windows"></i>
+              </button>
+              <button onclick="deleteEnv('${env.name}')" class="p-1.5 rounded-lg bg-dark-900 hover:bg-rose-950/50 hover:border-rose-800 hover:text-rose-400 border border-gray-800 text-xs text-gray-500 transition" title="Удалить среду ${env.name}">
+                <i class="fa-regular fa-trash-can"></i>
+              </button>
+            </div>
+          </div>
+        `;
+
+        grid.appendChild(card);
+      });
+    }
+
+    // Quick Env Buttons in File Manager
+    function updateQuickEnvButtons(envs) {
+      const container = document.getElementById('quick-env-buttons');
+      container.innerHTML = '';
+      Object.values(envs).forEach(env => {
+        const btn = document.createElement('button');
+        btn.className = 'px-2.5 py-1.5 rounded-lg bg-dark-900 hover:bg-dark-750 text-gray-400 hover:text-emerald-300 border border-gray-800 text-xs font-mono transition';
+        btn.textContent = `[${env.name}]`;
+        btn.onclick = () => navigateFiles(env.workspace);
+        container.appendChild(btn);
+      });
+    }
+
+    // Instant Resume Specific Session
+    async function resumeExactSession(envName, sessionId) {
+      activeEnv = envName;
+      const topPill = document.getElementById('pill-active-env');
+      if (topPill) topPill.textContent = envName;
+      const statPill = document.getElementById('stat-active-env');
+      if (statPill) statPill.textContent = envName;
+
+      try {
+        await fetch(`${API_BASE}/api/envs/set_active`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ name: envName })
+        });
+        await fetch(`${API_BASE}/api/opencode/kill`, { method: 'POST' });
+        const frame = document.getElementById('terminal-frame');
+        if (frame && frame.contentWindow) {
+          frame.contentWindow.postMessage({ type: 'RESET_TERMINAL' }, '*');
+        }
+      } catch (e) {}
+
+      switchTab('terminal');
+      const sel = document.getElementById('terminal-env-select');
+      if (sel) sel.value = envName;
+      showToast(`Подключение к сессии [${sessionId.substring(0, 12)}...] в среде [${envName}]`, "info");
+      setTimeout(() => {
+        runInTerminal(`env switch ${envName}\r`);
+        setTimeout(() => {
+          runInTerminal(`opencode -s ${sessionId}\r`);
+        }, 500);
+      }, 400);
+    }
+
+    // Launch 100% Brand New Session (Guaranteed Fresh Chat)
+    async function launchNewOpenCodeSession(envName) {
+      activeEnv = envName;
+      const topPill = document.getElementById('pill-active-env');
+      if (topPill) topPill.textContent = envName;
+      const statPill = document.getElementById('stat-active-env');
+      if (statPill) statPill.textContent = envName;
+
+      try {
+        await fetch(`${API_BASE}/api/envs/set_active`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ name: envName })
+        });
+        await fetch(`${API_BASE}/api/opencode/kill`, { method: 'POST' });
+        const frame = document.getElementById('terminal-frame');
+        if (frame && frame.contentWindow) {
+          frame.contentWindow.postMessage({ type: 'RESET_TERMINAL' }, '*');
+        }
+      } catch (e) {}
+
+      switchTab('terminal');
+      const sel = document.getElementById('terminal-env-select');
+      if (sel) sel.value = envName;
+      showToast(`Создание НОВОЙ сессии OpenCode в среде [${envName}]...`, "info");
+      
+      // Generate guaranteed unique session ID so OpenCode opens an empty clean chat
+      const newId = 'ses_' + Array.from(crypto.getRandomValues(new Uint8Array(10))).map(b => b.toString(16).padStart(2, '0')).join('');
+
+      setTimeout(() => {
+        runInTerminal(`env switch ${envName}\r`);
+        setTimeout(() => {
+          runInTerminal(`opencode -s ${newId}\r`);
+        }, 500);
+      }, 400);
+    }
+
+    // Graceful Exit / Clean Stop for OpenCode
+    async function killOpenCodeProcess() {
+      const frame = document.getElementById('terminal-frame');
+
+      // 1. Send instant terminal reset to stop mouse event reporting
+      try {
+        frame.contentWindow.postMessage({ type: 'RESET_TERMINAL' }, '*');
+        frame.contentWindow.postMessage({ type: 'SEND_INPUT', data: '\x03\x03\x15' }, '*');
+      } catch (e) {}
+
+      showToast("Закрытие OpenCode и открытие CMD...", "info");
+
+      // 2. Call backend graceful kill & terminal reset
+      try {
+        await fetch(`${API_BASE}/api/opencode/kill`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({})
+        });
+      } catch (e) {}
+
+      // 3. Complete terminal wipe and trigger clean command prompt
+      setTimeout(() => {
+        try {
+          frame.contentWindow.postMessage({ type: 'RESET_TERMINAL' }, '*');
+          frame.contentWindow.postMessage({ type: 'SEND_INPUT', data: '\x03\x15cls\r' }, '*');
+        } catch (e) {}
+        showToast("OpenCode успешно закрыт. Командная строка активна!", "success");
+      }, 150);
+    }
+
+    // Full terminal reload if ever needed
+    function reloadTerminalIframe() {
+      const frame = document.getElementById('terminal-frame');
+      if (frame) {
+        frame.src = 'http://localhost:7681?t=' + Date.now();
+        showToast("Терминал CMD перезапущен", "success");
+      }
+    }
+
+    // Reset Environment Cache & Passport
+    async function resetEnvCache(name) {
+      if (!confirm(`Вы действительно хотите очистить кэш среды [${name}] и сгенерировать полностью новый паспорт устройства (Machine ID & Hostname)?`)) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/envs/reset`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ name })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Среда [${name}]: Паспорт обновлен, кэш очищен!`, "success");
+          refreshAll();
+        } else {
+          showToast(`Ошибка: ${data.error}`, "error");
+        }
+      } catch (err) {
+        showToast("Ошибка сети при сбросе кэша", "error");
+      }
+    }
+
+    // Export whole environment to Windows
+    async function exportEnvToWindows(linuxWorkspace, winDest) {
+      showToast(`Экспорт файлов из ${linuxWorkspace} в ${winDest}...`, "info");
+      try {
+        const res = await fetch(`${API_BASE}/api/export`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            src_dir: linuxWorkspace,
+            dest_win: winDest
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Экспорт завершен! Скопировано файлов: ${data.count} в ${data.dest_win}`, "success");
+        } else {
+          showToast(`Ошибка экспорта: ${data.error}`, "error");
+        }
+      } catch (e) {
+        showToast("Ошибка сети при экспорте", "error");
+      }
+    }
+
+    // Delete Environment
+    async function deleteEnv(name) {
+      if (!confirm(`Вы действительно хотите удалить среду [${name}] из реестра?\n\nНажмите ОК для продолжения.`)) return;
+      const deleteDiskFolder = confirm(`Также удалить папку проекта этой среды на диске D (D:\\OpenCodeProjects\\${name})?\n\n[OK] = Удалить среду И папку проекта на диске D\n[Отмена] = Удалить только среду, но сохранить файлы проекта`);
+      try {
+        const res = await fetch(`${API_BASE}/api/envs/delete`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ name, delete_workspace: deleteDiskFolder })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Среда [${name}] успешно удалена!`, "success");
+          refreshAll();
+        } else {
+          showToast(`Ошибка: ${data.error}`, "error");
+        }
+      } catch (err) {
+        showToast("Ошибка сети при удалении среды", "error");
+      }
+    }
+
+    // Purge all non-default environments
+    async function purgeEnvironments() {
+      if (!confirm("Внимание! Очистить ВСЕ дополнительные среды и оставить только базовую [default]?")) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/envs/purge`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({})
+        });
+        const data = await res.json();
+        showToast(data.result || "Все среды очищены", "success");
+        refreshAll();
+      } catch (err) {
+        showToast("Ошибка при очистке сред", "error");
+      }
+    }
+
+    // Modal: New Environment
+    function openNewEnvModal() {
+      generateRandomEnvName();
+      document.getElementById('modal-new-env').classList.remove('hidden');
+    }
+    function closeNewEnvModal() {
+      document.getElementById('modal-new-env').classList.add('hidden');
+    }
+    function generateRandomEnvName() {
+      const names = ["alpha", "beta", "gamma", "delta", "nexus", "prism", "orbit", "quantum", "stellar", "matrix", "vector", "phoenix", "titan", "aurora", "nova", "zenith"];
+      const r = names[Math.floor(Math.random() * names.length)];
+      const num = Math.floor(Math.random() * 900) + 100;
+      document.getElementById('new-env-name').value = `${r}-${num}`;
+    }
+    async function submitNewEnv() {
+      const name = document.getElementById('new-env-name').value.trim();
+      if (!name) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/envs/create`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ name })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Среда [${data.env.name}] успешно создана!`, "success");
+          closeNewEnvModal();
+          refreshAll();
+        } else {
+          showToast(`Ошибка: ${data.error}`, "error");
+        }
+      } catch (err) {
+        showToast("Ошибка при создании среды", "error");
+      }
+    }
+
+    // ================= FILE EXPLORER =================
+    async function loadFiles(path) {
+      currentPath = path;
+      selectedFilePaths.clear();
+      updateSelectionBar();
+      document.getElementById('master-select-cb').checked = false;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/files?path=${encodeURIComponent(path)}`);
+        const data = await res.json();
+        currentDirFiles = data.items || [];
+        renderBreadcrumbs(data.current_path, data.current_win_path);
+        renderFilesList(currentDirFiles);
+      } catch (err) {
+        showToast("Ошибка загрузки папки", "error");
+      }
+    }
+
+    function renderBreadcrumbs(path, winPath) {
+      const bc = document.getElementById('breadcrumbs');
+      bc.innerHTML = '';
+      
+      const parts = path.split('/').filter(Boolean);
+      let accum = '';
+      
+      const rootBtn = document.createElement('button');
+      rootBtn.className = 'text-gray-400 hover:text-cyan-300 font-bold';
+      rootBtn.textContent = '/';
+      rootBtn.onclick = () => loadFiles('/');
+      bc.appendChild(rootBtn);
+
+      parts.forEach((p, idx) => {
+        accum += '/' + p;
+        const curAccum = accum;
+        const sep = document.createElement('span');
+        sep.className = 'text-gray-600';
+        sep.textContent = '/';
+        bc.appendChild(sep);
+
+        const btn = document.createElement('button');
+        const isLast = idx === parts.length - 1;
+        btn.className = isLast ? 'text-cyan-400 font-bold' : 'text-gray-300 hover:text-white';
+        btn.textContent = p;
+        btn.onclick = () => loadFiles(curAccum);
+        bc.appendChild(btn);
+      });
+    }
+
+    function renderFilesList(items) {
+      const tbody = document.getElementById('files-list');
+      const emptyDiv = document.getElementById('files-empty');
+      tbody.innerHTML = '';
+
+      if (items.length === 0) {
+        emptyDiv.classList.remove('hidden');
+        return;
+      }
+      emptyDiv.classList.add('hidden');
+
+      items.forEach(item => {
+        const tr = document.createElement('tr');
+        const isSelected = selectedFilePaths.has(item.path);
+        tr.className = `transition group ${isSelected ? 'bg-cyan-950/40' : 'hover:bg-dark-800/80'}`;
+
+        const iconClass = getFileIcon(item);
+        const formattedSize = item.is_dir ? '-' : formatBytes(item.size);
+
+        tr.innerHTML = `
+          <td class="py-2.5 px-3">
+            <input type="checkbox" data-path="${item.path}" ${isSelected ? 'checked' : ''} onchange="toggleSelectFile('${item.path}', this.checked)" class="file-cb rounded bg-dark-900 border-gray-700 text-cyan-500 focus:ring-0 cursor-pointer">
+          </td>
+          <td class="py-2.5 px-3 flex items-center gap-2.5">
+            <i class="${iconClass} text-base w-5 text-center"></i>
+            <span class="cursor-pointer ${item.is_dir ? 'text-white font-semibold hover:text-cyan-400' : 'text-gray-300 hover:text-cyan-300'}" onclick="${item.is_dir ? `loadFiles('${item.path}')` : `openFileEditor('${item.path}')`}">
+              ${item.name}
+            </span>
+          </td>
+          <td class="py-2.5 px-3 text-gray-400">${formattedSize}</td>
+          <td class="py-2.5 px-3 text-gray-500">${item.mtime}</td>
+          <td class="py-2.5 px-3 text-right">
+            <div class="flex items-center justify-end gap-1.5 opacity-80 group-hover:opacity-100 transition">
+              ${!item.is_dir ? `
+                <button onclick="exportSingleItem('${item.path}')" class="p-1.5 rounded hover:bg-dark-700 text-gray-400 hover:text-emerald-400" title="Экспортировать файл в Windows (D:\)">
+                  <i class="fa-solid fa-share-from-square"></i>
+                </button>
+                <a href="${API_BASE}/api/file/download?path=${encodeURIComponent(item.path)}" download class="p-1.5 rounded hover:bg-dark-700 text-gray-400 hover:text-cyan-300" title="Скачать в Windows">
+                  <i class="fa-solid fa-download"></i>
+                </a>
+                <button onclick="openFileEditor('${item.path}')" class="p-1.5 rounded hover:bg-dark-700 text-gray-400 hover:text-amber-400" title="Просмотр / Редактировать">
+                  <i class="fa-regular fa-pen-to-square"></i>
+                </button>
+              ` : `
+                <button onclick="exportSingleItem('${item.path}')" class="p-1.5 rounded hover:bg-dark-700 text-gray-400 hover:text-emerald-400" title="Экспортировать папку в Windows">
+                  <i class="fa-solid fa-share-from-square"></i>
+                </button>
+                <button onclick="openFolderInWin('${item.path}')" class="p-1.5 rounded hover:bg-dark-700 text-gray-400 hover:text-blue-400" title="Открыть папку в Windows">
+                  <i class="fa-brands fa-windows"></i>
+                </button>
+              `}
+              <button onclick="deleteFile('${item.path}', ${item.is_dir})" class="p-1.5 rounded hover:bg-dark-700 text-gray-400 hover:text-rose-400" title="Удалить">
+                <i class="fa-regular fa-trash-can"></i>
+              </button>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // Multiselect logic
+    function toggleSelectFile(path, checked) {
+      if (checked) {
+        selectedFilePaths.add(path);
+      } else {
+        selectedFilePaths.delete(path);
+      }
+      updateSelectionBar();
+      renderFilesList(currentDirFiles);
+    }
+
+    function toggleSelectAll(checked) {
+      if (checked) {
+        currentDirFiles.forEach(f => selectedFilePaths.add(f.path));
+      } else {
+        selectedFilePaths.clear();
+      }
+      updateSelectionBar();
+      renderFilesList(currentDirFiles);
+    }
+
+    function clearSelection() {
+      selectedFilePaths.clear();
+      document.getElementById('master-select-cb').checked = false;
+      updateSelectionBar();
+      renderFilesList(currentDirFiles);
+    }
+
+    function updateSelectionBar() {
+      const bar = document.getElementById('selection-bar');
+      const text = document.getElementById('selected-count-text');
+      const count = selectedFilePaths.size;
+      if (count > 0) {
+        bar.classList.remove('hidden');
+        text.textContent = `Выбрано: ${count} элемент(ов)`;
+      } else {
+        bar.classList.add('hidden');
+      }
+    }
+
+    // Export Selected Files to Windows
+    async function exportSelectedFiles() {
+      if (selectedFilePaths.size === 0) return;
+      const paths = Array.from(selectedFilePaths);
+      showToast(`Экспорт ${paths.length} выбранных файлов в Windows D:...`, "info");
+      try {
+        const res = await fetch(`${API_BASE}/api/export`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            paths: paths,
+            dest_win: "D:\\OpenCodeProjects"
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Успешно экспортировано: ${data.count} в ${data.dest_win}`, "success");
+          clearSelection();
+        } else {
+          showToast(`Ошибка экспорта: ${data.error}`, "error");
+        }
+      } catch (e) {
+        showToast("Ошибка сети при экспорте", "error");
+      }
+    }
+
+    // Export Single Item
+    async function exportSingleItem(path) {
+      showToast(`Экспорт ${path.split('/').pop()} в Windows...`, "info");
+      try {
+        const res = await fetch(`${API_BASE}/api/export`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            paths: [path],
+            dest_win: "D:\\OpenCodeProjects"
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Файл экспортирован в ${data.dest_win}`, "success");
+        } else {
+          showToast(`Ошибка: ${data.error}`, "error");
+        }
+      } catch (e) {
+        showToast("Ошибка при экспорте", "error");
+      }
+    }
+
+    // Export Entire Current Folder to Windows
+    async function exportCurrentFolderToWindows() {
+      showToast(`Экспорт всех файлов текущей папки в Windows D:...`, "info");
+      try {
+        const res = await fetch(`${API_BASE}/api/export`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            src_dir: currentPath,
+            dest_win: "D:\\OpenCodeProjects"
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Экспортировано файлов: ${data.count} в ${data.dest_win}`, "success");
+        } else {
+          showToast(`Ошибка: ${data.error}`, "error");
+        }
+      } catch (e) {
+        showToast("Ошибка сети при экспорте", "error");
+      }
+    }
+
+    // Download Selected as ZIP
+    function downloadSelectedAsZip() {
+      if (selectedFilePaths.size === 0) return;
+      const names = Array.from(selectedFilePaths).map(p => p.split('/').pop()).join(';');
+      window.location.href = `${API_BASE}/api/files/zip?dir=${encodeURIComponent(currentPath)}&items=${encodeURIComponent(names)}`;
+    }
+
+    // Download Entire Folder as ZIP
+    function downloadFolderAsZip() {
+      window.location.href = `${API_BASE}/api/files/zip?dir=${encodeURIComponent(currentPath)}`;
+    }
+
+    // Delete Selected Files
+    async function deleteSelectedFiles() {
+      if (selectedFilePaths.size === 0) return;
+      if (!confirm(`Удалить выбранные ${selectedFilePaths.size} элемент(ов)?`)) return;
+      const paths = Array.from(selectedFilePaths);
+      try {
+        const res = await fetch(`${API_BASE}/api/files/delete_batch`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ paths })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Удалено: ${data.deleted_count} элемент(ов)`, "success");
+          clearSelection();
+          loadFiles(currentPath);
+        }
+      } catch (e) {
+        showToast("Ошибка при удалении", "error");
+      }
+    }
+
+    function getFileIcon(item) {
+      if (item.is_dir) return 'fa-solid fa-folder text-amber-400';
+      const ext = item.ext;
+      if (['.py'].includes(ext)) return 'fa-brands fa-python text-yellow-400';
+      if (['.js', '.ts', '.jsx', '.tsx'].includes(ext)) return 'fa-brands fa-js text-yellow-300';
+      if (['.sh', '.bash', '.bat', '.cmd'].includes(ext)) return 'fa-solid fa-terminal text-emerald-400';
+      if (['.html', '.htm'].includes(ext)) return 'fa-brands fa-html5 text-orange-500';
+      if (['.css'].includes(ext)) return 'fa-brands fa-css3-alt text-blue-400';
+      if (['.json', '.yaml', '.yml', '.toml'].includes(ext)) return 'fa-solid fa-code text-cyan-400';
+      if (['.md', '.txt'].includes(ext)) return 'fa-regular fa-file-lines text-gray-300';
+      if (['.png', '.jpg', '.jpeg', '.svg', '.gif'].includes(ext)) return 'fa-regular fa-file-image text-purple-400';
+      if (['.zip', '.tar', '.gz', '.7z'].includes(ext)) return 'fa-regular fa-file-zipper text-rose-400';
+      return 'fa-regular fa-file text-gray-400';
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes || bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    function navigateFiles(path) {
+      switchTab('files');
+      loadFiles(path);
+    }
+    function navigateUp() {
+      const parent = currentPath.substring(0, currentPath.lastIndexOf('/')) || '/';
+      loadFiles(parent);
+    }
+    function refreshFiles() {
+      loadFiles(currentPath);
+    }
+    function openEnvInFiles(ws) {
+      switchTab('files');
+      loadFiles(ws);
+    }
+
+    // Drag & Drop Handling
+    function handleDragOver(e) {
+      e.preventDefault();
+      document.getElementById('drop-overlay').classList.remove('hidden');
+    }
+    function handleDragLeave(e) {
+      e.preventDefault();
+      document.getElementById('drop-overlay').classList.add('hidden');
+    }
+    async function handleDrop(e) {
+      e.preventDefault();
+      document.getElementById('drop-overlay').classList.add('hidden');
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        await uploadFilesList(files);
+      }
+    }
+    async function handleFileInput(input) {
+      if (input.files && input.files.length > 0) {
+        await uploadFilesList(input.files);
+        input.value = '';
+      }
+    }
+    async function uploadFilesList(files) {
+      showToast(`Загрузка ${files.length} файл(ов) в Linux...`, "info");
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        await uploadSingleFile(file);
+      }
+      showToast(`Все файлы успешно загружены в Linux!`, "success");
+      loadFiles(currentPath);
+    }
+    function uploadSingleFile(file) {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = async () => {
+          const b64 = reader.result.split(',')[1];
+          try {
+            await fetch(`${API_BASE}/api/files/upload`, {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({
+                dir: currentPath,
+                name: file.name,
+                content_base64: b64
+              })
+            });
+          } catch (e) {
+            console.error("Upload error", e);
+          }
+          resolve();
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // Create Folder & File Prompts
+    async function promptCreateFolder() {
+      const name = prompt("Введите имя новой папки:");
+      if (!name) return;
+      const target = `${currentPath}/${name}`.replace('//', '/');
+      try {
+        const res = await fetch(`${API_BASE}/api/files/mkdir`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ path: target })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Папка '${name}' создана`, "success");
+          loadFiles(currentPath);
+        } else {
+          showToast(`Ошибка: ${data.error}`, "error");
+        }
+      } catch (err) {
+        showToast("Ошибка создания папки", "error");
+      }
+    }
+    async function promptCreateFile() {
+      const name = prompt("Введите имя нового файла (например: script.py):");
+      if (!name) return;
+      const target = `${currentPath}/${name}`.replace('//', '/');
+      try {
+        const res = await fetch(`${API_BASE}/api/files/write`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ path: target, content: `# ${name}\n` })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Файл '${name}' создан`, "success");
+          loadFiles(currentPath);
+          openFileEditor(target);
+        } else {
+          showToast(`Ошибка: ${data.error}`, "error");
+        }
+      } catch (err) {
+        showToast("Ошибка создания файла", "error");
+      }
+    }
+    async function deleteFile(path, isDir) {
+      if (!confirm(`Удалить ${isDir ? 'папку со всем содержимым' : 'файл'} "${path.split('/').pop()}"?`)) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/files/delete`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ path })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast("Успешно удалено", "success");
+          loadFiles(currentPath);
+        } else {
+          showToast(`Ошибка: ${data.error}`, "error");
+        }
+      } catch (err) {
+        showToast("Ошибка удаления", "error");
+      }
+    }
+
+    // Windows Explorer Launcher
+    async function openInWindowsExplorer() {
+      openFolderInWin(currentPath);
+    }
+    async function openFolderInWin(p) {
+      try {
+        const res = await fetch(`${API_BASE}/api/open_explorer`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ path: p })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Открыт Проводник Windows: ${data.path}`, "info");
+        }
+      } catch (e) {
+        showToast("Не удалось открыть Проводник Windows", "error");
+      }
+    }
+
+    // File Editor Modal
+    async function openFileEditor(path) {
+      editingFilePath = path;
+      try {
+        const res = await fetch(`${API_BASE}/api/file/read?path=${encodeURIComponent(path)}`);
+        const data = await res.json();
+        if (data.error) {
+          showToast(data.error, "error");
+          return;
+        }
+        document.getElementById('editor-filename').textContent = data.name;
+        document.getElementById('editor-winpath').textContent = data.win_path;
+        document.getElementById('editor-content').value = data.content;
+        document.getElementById('editor-status').textContent = `Размер: ${formatBytes(data.size)}`;
+        document.getElementById('modal-file-editor').classList.remove('hidden');
+      } catch (err) {
+        showToast("Ошибка чтения файла", "error");
+      }
+    }
+    function closeFileEditor() {
+      document.getElementById('modal-file-editor').classList.add('hidden');
+    }
+    async function saveFileContent() {
+      if (!editingFilePath) return;
+      const content = document.getElementById('editor-content').value;
+      try {
+        const res = await fetch(`${API_BASE}/api/files/write`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ path: editingFilePath, content })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast("Файл успешно сохранен!", "success");
+          loadFiles(currentPath);
+        } else {
+          showToast(`Ошибка: ${data.error}`, "error");
+        }
+      } catch (err) {
+        showToast("Ошибка сохранения файла", "error");
+      }
+    }
+    function copyEditorContent() {
+      const text = document.getElementById('editor-content').value;
+      copyText(text, "Содержимое файла скопировано!");
+    }
+
+    // ================= TERMINAL INTEGRATION =================
+    function runInTerminal(cmd) {
+      if (!cmd) return;
+      let formatted = cmd;
+      if (!formatted.endsWith('\r') && !formatted.endsWith('\n')) {
+        formatted += '\r';
+      } else {
+        formatted = formatted.replace(/\r?\n$/, '\r');
+      }
+      const frame = document.getElementById('terminal-frame');
+      if (frame && frame.contentWindow) {
+        try {
+          frame.contentWindow.postMessage({ type: 'SEND_INPUT', text: formatted, data: formatted }, '*');
+          frame.contentWindow.postMessage({ type: 'input', text: formatted, data: formatted }, '*');
+          frame.contentWindow.postMessage({ type: 'RUN_COMMAND', text: formatted, data: formatted }, '*');
+        } catch (e) {
+          console.error('[Terminal Frame Error]', e);
+        }
+      }
+      showToast(`Команда отправлена: ${cmd.trim()}`, "info");
+    }
+
+    async function switchEnvInTerminal(envName) {
+      activeEnv = envName;
+      const topPill = document.getElementById('pill-active-env');
+      if (topPill) topPill.textContent = envName;
+      const statPill = document.getElementById('stat-active-env');
+      if (statPill) statPill.textContent = envName;
+
+      try {
+        await fetch(`${API_BASE}/api/envs/set_active`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ name: envName })
+        });
+      } catch (e) {}
+      runInTerminal(`env switch ${envName}\n`);
+      showToast(`Переключение терминала в среду [${envName}]`, "info");
+      refreshAll();
+    }
+
+    async function pasteClipboardToTerminal() {
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+          runInTerminal(text);
+          showToast("Текст вставлен в терминал", "success");
+        }
+      } catch (e) {
+        showToast("Нажмите Ctrl+V внутри терминала для вставки", "info");
+      }
+    }
+
+    // ================= PROXY & NETWORK (PER-ENVIRONMENT) =================
+    let selectedProxyEnv = 'default';
+
+    function openProxyTabForEnv(envName) {
+      selectedProxyEnv = envName || 'default';
+      switchTab('proxy');
+      const sel = document.getElementById('proxy-env-select');
+      if (sel) sel.value = selectedProxyEnv;
+      onProxyEnvSelected(selectedProxyEnv);
+    }
+
+    function onProxyEnvSelected(envName) {
+      selectedProxyEnv = envName || 'default';
+      
+      const badge = document.getElementById('proxy-current-env-badge');
+      if (badge) badge.textContent = selectedProxyEnv;
+      
+      const title1 = document.getElementById('proxy-env-title');
+      if (title1) title1.textContent = selectedProxyEnv;
+
+      const title2 = document.getElementById('proxy-config-env-title');
+      if (title2) title2.textContent = selectedProxyEnv;
+
+      const envInfo = currentEnvs[selectedProxyEnv] || {};
+      const urlInput = document.getElementById('proxy-url-input');
+      const toggle = document.getElementById('proxy-toggle-switch');
+      
+      if (urlInput) urlInput.value = envInfo.proxy_url || '';
+      if (toggle) toggle.checked = !!envInfo.proxy_enabled;
+
+      checkSelectedEnvIp(selectedProxyEnv);
+    }
+
+    async function checkSelectedEnvIp(envName) {
+      const targetEnv = envName || selectedProxyEnv || 'default';
+      document.getElementById('net-query').textContent = "Определение...";
+      document.getElementById('proxy-status-pill').textContent = "Проверка...";
+      try {
+        const res = await fetch(`${API_BASE}/api/proxy?env=${encodeURIComponent(targetEnv)}`);
+        const data = await res.json();
+        if (data.ip_check) {
+          updateNetworkUI(data.ip_check, targetEnv);
+        } else {
+          document.getElementById('net-query').textContent = "Нет ответа";
+        }
+      } catch (err) {
+        document.getElementById('net-query').textContent = "Ошибка сети";
+      }
+    }
+
+    function updateNetworkUI(data, envName) {
+      const isProxy = !!data.proxy_active;
+      document.getElementById('net-query').textContent = data.query || 'Офлайн';
+      document.getElementById('net-country').textContent = data.country || 'Неизвестно';
+      document.getElementById('net-city').textContent = data.city || '-';
+      document.getElementById('net-org').textContent = data.org || '-';
+      
+      const badge = document.getElementById('badge-proxy-status');
+      const pill = document.getElementById('proxy-status-pill');
+      const netActive = document.getElementById('net-proxy-active');
+      const toggle = document.getElementById('proxy-toggle-switch');
+      const urlInput = document.getElementById('proxy-url-input');
+
+      if (isProxy) {
+        if (badge) badge.className = 'w-2 h-2 rounded-full bg-emerald-400 pulse-dot';
+        if (pill) {
+          pill.className = 'text-xs px-3 py-1 rounded-full font-mono bg-emerald-950 text-emerald-300 border border-emerald-800';
+          pill.textContent = 'ПРОКСИ ВКЛЮЧЕН';
+        }
+        if (netActive) {
+          netActive.className = 'text-emerald-400 font-bold';
+          netActive.textContent = `Активен (${data.proxy_url || ''})`;
+        }
+        if (toggle) toggle.checked = true;
+      } else {
+        if (badge && envName === activeEnv) badge.className = 'w-2 h-2 rounded-full bg-gray-500';
+        if (pill) {
+          pill.className = 'text-xs px-3 py-1 rounded-full font-mono bg-dark-900 text-gray-400 border border-gray-800';
+          pill.textContent = 'ПРЯМОЕ СОЕДИНЕНИЕ';
+        }
+        if (netActive) {
+          netActive.className = 'text-gray-400';
+          netActive.textContent = 'Выключено';
+        }
+        if (toggle) toggle.checked = false;
+      }
+
+      if (data.proxy_url && urlInput && !urlInput.value) {
+        urlInput.value = data.proxy_url;
+      }
+
+      // Update currentEnvs cache
+      if (currentEnvs[envName]) {
+        currentEnvs[envName].proxy_enabled = isProxy;
+        if (data.proxy_url) currentEnvs[envName].proxy_url = data.proxy_url;
+      }
+      renderProxySummaryTable();
+    }
+
+    async function saveSelectedEnvProxy() {
+      const envName = selectedProxyEnv || 'default';
+      const url = document.getElementById('proxy-url-input').value.trim();
+      const toggle = document.getElementById('proxy-toggle-switch').checked;
+
+      if (!url && toggle) {
+        showToast("Укажите URL прокси для включения", "error");
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/proxy/set`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ env: envName, url: url, enable: toggle })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Прокси для среды [${envName}] успешно сохранен!`, "success");
+          if (data.ip_check) updateNetworkUI(data.ip_check, envName);
+          refreshAll();
+        } else {
+          showToast(`Ошибка: ${data.error}`, "error");
+        }
+      } catch (err) {
+        showToast("Ошибка сохранения прокси", "error");
+      }
+    }
+
+    async function toggleSelectedEnvProxy(enabled) {
+      const envName = selectedProxyEnv || 'default';
+      const url = document.getElementById('proxy-url-input').value.trim();
+
+      if (enabled && !url) {
+        showToast("Укажите URL прокси перед включением", "error");
+        document.getElementById('proxy-toggle-switch').checked = false;
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/proxy/set`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ env: envName, url: url, enable: enabled })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Прокси для [${envName}] ${enabled ? 'включен' : 'отключен'}`, "info");
+          if (data.ip_check) updateNetworkUI(data.ip_check, envName);
+          refreshAll();
+        }
+      } catch (err) {
+        showToast("Ошибка переключения прокси", "error");
+      }
+    }
+
+    function disableSelectedEnvProxy() {
+      const toggle = document.getElementById('proxy-toggle-switch');
+      if (toggle) toggle.checked = false;
+      toggleSelectedEnvProxy(false);
+    }
+
+    function renderProxySummaryTable() {
+      const tbody = document.getElementById('proxy-summary-tbody');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+
+      const envList = Object.values(currentEnvs);
+      if (envList.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="py-4 text-center text-gray-500">Нет сред</td></tr>';
+        return;
+      }
+
+      envList.forEach(env => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-dark-800/50 transition';
+        const isSel = env.name === selectedProxyEnv;
+        tr.innerHTML = `
+          <td class="py-3 px-4 font-bold text-white flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full ${env.name === activeEnv ? 'bg-cyan-400' : 'bg-gray-600'}"></span>
+            <span>${env.name}</span>
+            ${env.name === activeEnv ? '<span class="text-[9px] px-1 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-800">ACTIVE</span>' : ''}
+          </td>
+          <td class="py-3 px-4">
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold ${env.proxy_enabled ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-dark-900 text-gray-400 border border-gray-800'}">
+              ${env.proxy_enabled ? 'ВКЛЮЧЕН' : 'ОТКЛЮЧЕН'}
+            </span>
+          </td>
+          <td class="py-3 px-4 text-gray-400 truncate max-w-[260px]" title="${env.proxy_url || ''}">
+            ${env.proxy_url || '<span class="text-gray-600">Прямое подключение (Direct)</span>'}
+          </td>
+          <td class="py-3 px-4 text-right">
+            <button onclick="openProxyTabForEnv('${env.name}')" class="py-1 px-2.5 rounded-lg bg-dark-750 hover:bg-dark-700 text-purple-300 border border-purple-800/60 text-xs transition">
+              <i class="fa-solid fa-gear mr-1"></i>Настроить
+            </button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // Populate Proxy Env Select in refreshAll()
+    function updateProxyEnvSelector() {
+      const sel = document.getElementById('proxy-env-select');
+      if (!sel) return;
+      const prevVal = sel.value || selectedProxyEnv;
+      sel.innerHTML = '';
+      Object.keys(currentEnvs).forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = `${name} ${name === activeEnv ? '(активная)' : ''}`;
+        if (name === prevVal) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      if (sel.value) selectedProxyEnv = sel.value;
+      renderProxySummaryTable();
+    }
+
+    // Clipboard helper
+    function copyText(str, msg = "Скопировано в буфер") {
+      navigator.clipboard.writeText(str).then(() => {
+        showToast(msg, "success");
+      });
+    }
+
+    // Auto-init on load
+    window.addEventListener('DOMContentLoaded', () => {
+      refreshAll();
+    });
+  </script>
+</body>
+</html>

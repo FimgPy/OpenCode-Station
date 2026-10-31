@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Просмотр папок и проектов в файловой системе Linux (WSL).
+Сделано Антоном Ковалкиным все права защищены.
+"""
+import os
+import sys
+import datetime
+
+def format_size(bytes_size):
+    for unit in ['Б', 'КБ', 'МБ', 'ГБ']:
+        if bytes_size < 1024.0:
+            return f"{bytes_size:.1f} {unit}" if unit != 'Б' else f"{int(bytes_size)} {unit}"
+        bytes_size /= 1024.0
+    return f"{bytes_size:.1f} ТБ"
+
+def get_dir_size(path):
+    total = 0
+    count = 0
+    try:
+        for entry in os.scandir(path):
+            if entry.is_file(follow_symlinks=False):
+                total += entry.stat().st_size
+                count += 1
+            elif entry.is_dir(follow_symlinks=False):
+                # shallow check for subdirs
+                count += 1
+    except Exception:
+        pass
+    return total, count
+
+def main():
+    target = "/home/dev"
+    if len(sys.argv) > 1 and not sys.argv[1].startswith("-"):
+        target = sys.argv[1]
+        target = os.path.expanduser(target)
+
+    print("==============================================================================")
+    print("                 Папки и проекты в файловой системе Linux (WSL)               ")
+    print("                 Сделано Антоном Ковалкиным все права защищены.               ")
+    print("==============================================================================\n")
+    print(f"Текущая просматриваемая директория Linux: {os.path.abspath(target)}\n")
+
+    if not os.path.exists(target):
+        print(f"Ошибка: Папка {target} не найдена в Linux.\n")
+        return
+
+    try:
+        entries = sorted(os.scandir(target), key=lambda e: (not e.is_dir(), e.name.lower()))
+    except Exception as e:
+        print(f"Ошибка чтения: {e}")
+        return
+
+    print(f"{'Тип':<8} {'Имя':<28} {'Размер':<12} {'Изменено':<16} {'Примечание'}")
+    print("-" * 78)
+
+    dirs_count = 0
+    files_count = 0
+
+    for entry in entries:
+        # Skip hidden files by default unless specific
+        is_hidden = entry.name.startswith(".") and entry.name not in [".config"]
+        if is_hidden and target == "/home/dev":
+            continue
+
+        try:
+            st = entry.stat(follow_symlinks=False)
+            dt = datetime.datetime.fromtimestamp(st.st_mtime).strftime("%d.%m.%Y %H:%M")
+            name = entry.name
+            note = ""
+
+            if entry.is_symlink():
+                target_link = os.readlink(entry.path)
+                if "/mnt/d" in target_link:
+                    note = "-> Windows диск D: (OpenCodeProjects)"
+                elif "/mnt/c" in target_link:
+                    note = "-> Windows диск C:"
+                else:
+                    note = f"-> {target_link}"
+                print(f"{'<LINK>':<8} {name:<28} {'-':<12} {dt:<16} {note}")
+                dirs_count += 1
+            elif entry.is_dir():
+                dirs_count += 1
+                sz, cnt = get_dir_size(entry.path)
+                note = f"{cnt} элементов"
+                if name == ".config":
+                    note = "Настройки OpenCode"
+                print(f"{'<DIR>':<8} {name:<28} {format_size(sz):<12} {dt:<16} {note}")
+            else:
+                files_count += 1
+                sz = st.st_size
+                if name.endswith(".txt") or name.endswith(".py") or name.endswith(".js"):
+                    note = "Файл проекта / код"
+                print(f"{'<FILE>':<8} {name:<28} {format_size(sz):<12} {dt:<16} {note}")
+        except Exception:
+            pass
+
+    print("-" * 78)
+    print(f"Всего: {dirs_count} папок, {files_count} файлов в {target}\n")
+
+    print("Быстрые команды для работы с Linux:")
+    print("  open /home/dev    -> Открыть домашнюю папку Linux в Проводнике Windows")
+    print("  cd /home/dev      -> Перейти в домашнюю папку Linux в терминале")
+    print("  export linux      -> Экспортировать все файлы из Linux в D:\\OpenCodeProjects")
+    print("  d:                -> Вернуться в рабочую папку Windows D:\\OpenCodeProjects")
+    print("==============================================================================\n")
+
+if __name__ == "__main__":
+    main()

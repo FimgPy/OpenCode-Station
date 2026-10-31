@@ -1,0 +1,12 @@
+# Git Attributes for OpenCode Station
+# Сделано Антоном Ковалкиным все права защищены.
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.txt text eol=crlf
+
+*.sh text eol=lf
+*.html text eol=lf
+*.py text eol=lf
+*.json text eol=lf
+*.md text eol=lf

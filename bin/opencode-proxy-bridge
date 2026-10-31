@@ -1,0 +1,319 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Универсальный HTTP-to-SOCKS5/4 мост для OpenCode Station.
+Обеспечивает полную совместимость Bun/OpenCode с любыми SOCKS-прокси.
+Сделано Антоном Ковалкиным все права защищены.
+"""
+import os
+import sys
+import json
+import time
+import signal
+import socket
+import asyncio
+import urllib.parse
+import subprocess
+
+DEFAULT_PORT = 10800
+STATE_DIR = "/tmp/opencode_bridges"
+
+class SocksBridge:
+    def __init__(self, socks_url, listen_host="127.0.0.1", listen_port=DEFAULT_PORT):
+        parsed = urllib.parse.urlparse(socks_url)
+        self.scheme = parsed.scheme.lower()
+        self.socks_host = parsed.hostname
+        self.socks_port = parsed.port or (1080 if "socks" in self.scheme else 8080)
+        self.username = parsed.username
+        self.password = parsed.password
+        self.listen_host = listen_host
+        self.listen_port = listen_port
+        self.server = None
+
+    async def connect_socks5(self, target_host, target_port):
+        reader, writer = await asyncio.open_connection(self.socks_host, self.socks_port)
+
+        # 1. SOCKS5 Method Negotiation
+        if self.username and self.password:
+            writer.write(b"\x05\x02\x00\x02") # 0x00=NoAuth, 0x02=User/Pass
+            await writer.drain()
+            resp = await reader.readexactly(2)
+            if resp == b"\x05\x02":
+                # RFC 1929 Username/Password Subnegotiation
+                u = self.username.encode()
+                p = self.password.encode()
+                writer.write(b"\x01" + bytes([len(u)]) + u + bytes([len(p)]) + p)
+                await writer.drain()
+                auth_resp = await reader.readexactly(2)
+                if auth_resp != b"\x01\x00":
+                    writer.close()
+                    raise ConnectionError(f"SOCKS5 authentication failed: {auth_resp}")
+            elif resp != b"\x05\x00":
+                writer.close()
+                raise ConnectionError(f"SOCKS5 method negotiation failed: {resp}")
+        else:
+            writer.write(b"\x05\x01\x00")
+            await writer.drain()
+            resp = await reader.readexactly(2)
+            if resp != b"\x05\x00":
+                writer.close()
+                raise ConnectionError(f"SOCKS5 handshake failed: {resp}")
+
+        # 2. SOCKS5 Connect Command
+        th_bytes = target_host.encode()
+        req = b"\x05\x01\x00\x03" + bytes([len(th_bytes)]) + th_bytes + target_port.to_bytes(2, "big")
+        writer.write(req)
+        await writer.drain()
+
+        resp = await reader.readexactly(4)
+        if resp[1] != 0:
+            writer.close()
+            raise ConnectionError(f"SOCKS5 connect error code: {resp[1]}")
+
+        # 3. Discard bound address
+        atyp = resp[3]
+        if atyp == 1:
+            await reader.readexactly(4 + 2)
+        elif atyp == 3:
+            dlen = (await reader.readexactly(1))[0]
+            await reader.readexactly(dlen + 2)
+        elif atyp == 4:
+            await reader.readexactly(16 + 2)
+
+        return reader, writer
+
+    async def pipe(self, r, w):
+        try:
+            while True:
+                data = await r.read(65536)
+                if not data:
+                    break
+                w.write(data)
+                await w.drain()
+        except Exception:
+            pass
+        finally:
+            try:
+                w.close()
+            except Exception:
+                pass
+
+    async def handle_client(self, client_reader, client_writer):
+        try:
+            line = await client_reader.readline()
+            if not line:
+                client_writer.close()
+                return
+
+            req_line = line.decode("latin1", errors="ignore").strip()
+            parts = req_line.split()
+            if len(parts) < 2:
+                client_writer.close()
+                return
+
+            method, target = parts[0], parts[1]
+
+            # Read request headers
+            headers = []
+            while True:
+                hline = await client_reader.readline()
+                if not hline or hline == b"\r\n" or hline == b"\n":
+                    break
+                headers.append(hline)
+
+            if method.upper() == "CONNECT":
+                # HTTPS Tunnel
+                if ":" in target:
+                    th, tp = target.split(":", 1)
+                    tp = int(tp)
+                else:
+                    th, tp = target, 443
+
+                try:
+                    remote_reader, remote_writer = await self.connect_socks5(th, tp)
+                except Exception:
+                    client_writer.write(b"HTTP/1.1 502 Bad Gateway (SOCKS Connection Failed)\r\n\r\n")
+                    await client_writer.drain()
+                    client_writer.close()
+                    return
+
+                client_writer.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                await client_writer.drain()
+
+                await asyncio.gather(
+                    self.pipe(client_reader, remote_writer),
+                    self.pipe(remote_reader, client_writer)
+                )
+            else:
+                # Plain HTTP
+                p = urllib.parse.urlparse(target)
+                th = p.hostname or "127.0.0.1"
+                tp = p.port or 80
+                path = p.path or "/"
+                if p.query:
+                    path += "?" + p.query
+
+                try:
+                    remote_reader, remote_writer = await self.connect_socks5(th, tp)
+                except Exception:
+                    client_writer.write(b"HTTP/1.1 502 Bad Gateway (SOCKS Connection Failed)\r\n\r\n")
+                    await client_writer.drain()
+                    client_writer.close()
+                    return
+
+                new_req = f"{method} {path} HTTP/1.1\r\n".encode("latin1")
+                remote_writer.write(new_req)
+                for h in headers:
+                    remote_writer.write(h)
+                remote_writer.write(b"\r\n")
+                await remote_writer.drain()
+
+                await asyncio.gather(
+                    self.pipe(client_reader, remote_writer),
+                    self.pipe(remote_reader, client_writer)
+                )
+
+        except Exception:
+            pass
+        finally:
+            try:
+                client_writer.close()
+            except Exception:
+                pass
+
+    async def start(self):
+        self.server = await asyncio.start_server(self.handle_client, self.listen_host, self.listen_port)
+
+def get_state_file(port):
+    os.makedirs(STATE_DIR, exist_ok=True)
+    return os.path.join(STATE_DIR, f"bridge_{port}.json")
+
+def is_pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+def cmd_start(socks_url, port=DEFAULT_PORT):
+    state_file = get_state_file(port)
+    if os.path.exists(state_file):
+        try:
+            with open(state_file) as f:
+                st = json.load(f)
+            pid = st.get("pid")
+            old_url = st.get("url")
+            if pid and is_pid_alive(pid):
+                if old_url == socks_url:
+                    # Already active and matching
+                    return 0
+                else:
+                    # Target changed, kill and restart
+                    try:
+                        os.kill(pid, signal.SIGTERM)
+                        time.sleep(0.3)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    # Launch background daemon
+    cmd = [sys.executable, __file__, "run", socks_url, str(port)]
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True
+    )
+    with open(state_file, "w") as f:
+        json.dump({"pid": proc.pid, "url": socks_url, "port": port}, f)
+
+    # Wait up to 2 seconds for port to open
+    for _ in range(20):
+        try:
+            s = socket.socket()
+            s.settimeout(0.1)
+            s.connect(("127.0.0.1", port))
+            s.close()
+            return 0
+        except Exception:
+            time.sleep(0.1)
+    return 0
+
+def cmd_stop(port=DEFAULT_PORT):
+    state_file = get_state_file(port)
+    if os.path.exists(state_file):
+        try:
+            with open(state_file) as f:
+                st = json.load(f)
+            pid = st.get("pid")
+            if pid and is_pid_alive(pid):
+                os.kill(pid, signal.SIGTERM)
+        except Exception:
+            pass
+        try:
+            os.remove(state_file)
+        except Exception:
+            pass
+    return 0
+
+def cmd_status(port=DEFAULT_PORT):
+    state_file = get_state_file(port)
+    if os.path.exists(state_file):
+        try:
+            with open(state_file) as f:
+                st = json.load(f)
+            pid = st.get("pid")
+            if pid and is_pid_alive(pid):
+                print(f"RUNNING (PID {pid}, target: {st.get('url')})")
+                return 0
+        except Exception:
+            pass
+    print("STOPPED")
+    return 1
+
+async def async_run(socks_url, port):
+    bridge = SocksBridge(socks_url, "127.0.0.1", port)
+    await bridge.start()
+    await bridge.server.serve_forever()
+
+def cmd_run(socks_url, port=DEFAULT_PORT):
+    try:
+        asyncio.run(async_run(socks_url, port))
+    except KeyboardInterrupt:
+        pass
+
+def main():
+    if len(sys.argv) < 2:
+        print("Использование: opencode-proxy-bridge {start|stop|status|run} <socks_url> [port]")
+        sys.exit(1)
+
+    cmd = sys.argv[1].lower()
+    if cmd == "start":
+        if len(sys.argv) < 3:
+            print("Ошибка: укажите SOCKS URL: opencode-proxy-bridge start socks5://host:port [port]")
+            sys.exit(1)
+        url = sys.argv[2]
+        port = int(sys.argv[3]) if len(sys.argv) > 3 else DEFAULT_PORT
+        sys.exit(cmd_start(url, port))
+    elif cmd == "stop":
+        port = int(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_PORT
+        sys.exit(cmd_stop(port))
+    elif cmd == "status":
+        port = int(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_PORT
+        sys.exit(cmd_status(port))
+    elif cmd == "run":
+        if len(sys.argv) < 3:
+            sys.exit(1)
+        url = sys.argv[2]
+        port = int(sys.argv[3]) if len(sys.argv) > 3 else DEFAULT_PORT
+        cmd_run(url, port)
+    else:
+        # Default start
+        url = sys.argv[1]
+        port = int(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_PORT
+        sys.exit(cmd_start(url, port))
+
+if __name__ == "__main__":
+    main()

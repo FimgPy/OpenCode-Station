@@ -1,0 +1,239 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Утилита экспорта файлов из Linux (WSL) в Windows.
+Сделано Антоном Ковалкиным все права защищены.
+"""
+import os
+import sys
+import glob
+import shutil
+import subprocess
+
+DEFAULT_DEST = "/mnt/d/OpenCodeProjects"
+
+SHORTCUTS = {
+    "desktop": "/mnt/c/Users/anton/Desktop",
+    "рабочий_стол": "/mnt/c/Users/anton/Desktop",
+    "downloads": "/mnt/c/Users/anton/Downloads",
+    "загрузки": "/mnt/c/Users/anton/Downloads",
+    "documents": "/mnt/c/Users/anton/Documents",
+    "документы": "/mnt/c/Users/anton/Documents",
+    "d": "/mnt/d/OpenCodeProjects",
+    "d:": "/mnt/d/OpenCodeProjects",
+    "workspace": "/mnt/d/OpenCodeProjects"
+}
+
+def to_linux_path(p):
+    p = p.strip().strip("'\"")
+    if p.lower() in SHORTCUTS:
+        return SHORTCUTS[p.lower()]
+    # Windows drive path
+    if len(p) >= 2 and p[1] == ':':
+        drive = p[0].lower()
+        rest = p[2:].replace("\\", "/").lstrip("/")
+        return f"/mnt/{drive}/{rest}"
+    p = p.replace("\\", "/")
+    return os.path.abspath(os.path.expanduser(p))
+
+def to_win_display(p):
+    if p.startswith("/mnt/d"):
+        return ("D:" + p[len("/mnt/d"):]).replace("/", "\\")
+    elif p.startswith("/mnt/c"):
+        return ("C:" + p[len("/mnt/c"):]).replace("/", "\\")
+    elif p.startswith("/home/dev/workspace"):
+        return ("D:\\OpenCodeProjects" + p[len("/home/dev/workspace"):]).replace("/", "\\")
+    return p.replace("/", "\\")
+
+def format_size(bytes_size):
+    for unit in ['Б', 'КБ', 'МБ', 'ГБ']:
+        if bytes_size < 1024.0:
+            return f"{bytes_size:.1f} {unit}" if unit != 'Б' else f"{int(bytes_size)} {unit}"
+        bytes_size /= 1024.0
+    return f"{bytes_size:.1f} ТБ"
+
+def print_help():
+    print("==============================================================================")
+    print("                 Утилита экспорта файлов из Linux в Windows                   ")
+    print("                 Сделано Антоном Ковалкиным все права защищены.               ")
+    print("==============================================================================\n")
+    print("Использование: export <режим_или_файлы> [куда_в_windows]\n")
+    print("Режимы экспорта:")
+    print("  1. export all [куда]           -> Экспортировать ВСЕ файлы текущей папки")
+    print("  2. export select [куда]        -> Интерактивный ВЫБОРОЧНЫЙ экспорт по номерам")
+    print("  3. export *.py [куда]          -> Экспорт по МАСКЕ (например, только *.txt, *.py)")
+    print("  4. export linux [куда]         -> Экспорт всех файлов проекта из Linux (/home/dev)")
+    print("  5. export файл1 файл2 [куда]   -> Экспорт конкретных файлов\n")
+    print("Куда можно сохранять:")
+    print("  (по умолчанию)                 -> D:\\OpenCodeProjects")
+    print("  desktop                        -> На рабочий стол Windows (C:\\Users\\anton\\Desktop)")
+    print("  downloads                      -> В папку Загрузки Windows")
+    print("  'C:\\Любая\\Папка'             -> В любую указанную папку Windows\n")
+    print("Примеры:")
+    print("  export all")
+    print("  export select")
+    print("  export *.txt desktop")
+    print("  export linux")
+    print("  export 123.txt 'C:\\Users\\anton\\Desktop'")
+    print("==============================================================================\n")
+
+def copy_item(src, dest_dir):
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+        base = os.path.basename(src.rstrip("/\\"))
+        target = os.path.join(dest_dir, base)
+        if os.path.isdir(src):
+            if os.path.exists(target):
+                shutil.rmtree(target)
+            shutil.copytree(src, target)
+        else:
+            shutil.copy2(src, target)
+        return True, target
+    except Exception as e:
+        return False, str(e)
+
+def run_interactive_select(src_dir=".", dest_dir=DEFAULT_DEST):
+    print(f"\nВыборочный экспорт из: {os.path.abspath(src_dir)}")
+    try:
+        entries = sorted([e for e in os.scandir(src_dir) if not e.name.startswith(".")], key=lambda x: (not x.is_dir(), x.name.lower()))
+    except Exception as e:
+        print(f"Ошибка чтения каталога: {e}")
+        return
+
+    if not entries:
+        print("В текущей папке нет доступных файлов для экспорта.")
+        return
+
+    print("\nДоступные файлы и папки:")
+    for idx, e in enumerate(entries, 1):
+        try:
+            sz = format_size(e.stat().st_size) if e.is_file() else "<ПАПКА>"
+            type_tag = "[ФАЙЛ]" if e.is_file() else "[ПАПКА]"
+            print(f"  [{idx:>2}] {type_tag} {e.name:<30} {sz}")
+        except Exception:
+            pass
+
+    print("\nВведите номера файлов для экспорта через пробел или запятую")
+    print("(например: 1, 3  или  * для всех, q для отмены):")
+    sys.stdout.write("> ")
+    sys.stdout.flush()
+    try:
+        choice = sys.stdin.readline().strip()
+    except KeyboardInterrupt:
+        print("\nОтменено.")
+        return
+
+    if not choice or choice.lower() in ['q', 'й', 'exit']:
+        print("Экспорт отменен.")
+        return
+
+    selected = []
+    if choice == "*":
+        selected = [e.path for e in entries]
+    else:
+        parts = choice.replace(",", " ").split()
+        for p in parts:
+            if p.isdigit():
+                i = int(p)
+                if 1 <= i <= len(entries):
+                    selected.append(entries[i-1].path)
+
+    if not selected:
+        print("Ни один файл не выбран.")
+        return
+
+    print(f"\nКуда экспортировать? [По умолчанию: {to_win_display(dest_dir)}]")
+    print("(Нажмите Enter для папки по умолчанию или введите: desktop, downloads, путь):")
+    sys.stdout.write("> ")
+    sys.stdout.flush()
+    custom_dest = sys.stdin.readline().strip()
+    if custom_dest:
+        dest_dir = to_linux_path(custom_dest)
+
+    do_export_list(selected, dest_dir)
+
+def do_export_list(file_list, dest_dir):
+    print(f"\nКопирование в: {to_win_display(dest_dir)} ...")
+    success_count = 0
+    for src in file_list:
+        ok, res = copy_item(src, dest_dir)
+        name = os.path.basename(src)
+        if ok:
+            print(f"  [+] Успешно: {name} -> {to_win_display(res)}")
+            success_count += 1
+        else:
+            print(f"  [-] Ошибка при копировании {name}: {res}")
+
+    print(f"\nГотово! Успешно экспортировано: {success_count} из {len(file_list)}.")
+    print(f"Файлы доступны в Windows: {to_win_display(dest_dir)}\n")
+
+def main():
+    args = sys.argv[1:]
+    if not args or args[0] in ["-h", "--help", "/?", "help"]:
+        print_help()
+        return
+
+    mode_or_file = args[0].lower()
+
+    # Determine destination
+    dest = DEFAULT_DEST
+    if len(args) > 1 and not args[1].startswith("*"):
+        # Check if the last arg looks like a destination
+        potential_dest = args[-1]
+        if potential_dest.lower() in SHORTCUTS or ":" in potential_dest or "/" in potential_dest or "\\" in potential_dest:
+            dest = to_linux_path(potential_dest)
+            args = args[:-1]
+
+    # Mode 1: Interactive select
+    if mode_or_file in ["select", "choose", "выбор", "-i", "--interactive"]:
+        src = "."
+        run_interactive_select(src, dest)
+        return
+
+    # Mode 2: Export all
+    if mode_or_file in ["all", "*", "все", "всё", "."]:
+        files = [e.path for e in os.scandir(".") if not e.name.startswith(".")]
+        if not files:
+            print("В текущей папке нет файлов для экспорта.")
+            return
+        do_export_list(files, dest)
+        return
+
+    # Mode 3: Export linux home
+    if mode_or_file in ["linux", "home", "линукс"]:
+        print("Поиск файлов проекта в домашней папке Linux (/home/dev)...")
+        linux_home = "/home/dev"
+        files = []
+        for e in os.scandir(linux_home):
+            if not e.name.startswith(".") and e.name not in ["workspace"]:
+                files.append(e.path)
+        if not files:
+            print("В /home/dev не найдено отдельных файлов проектов.")
+            return
+        do_export_list(files, dest)
+        return
+
+    # Mode 4: Wildcard or list of files
+    items_to_export = []
+    for arg in args:
+        if "*" in arg or "?" in arg:
+            matched = glob.glob(arg)
+            items_to_export.extend(matched)
+        else:
+            # Handle Linux or Windows path
+            p = arg.replace("\\", "/")
+            if os.path.exists(p):
+                items_to_export.append(p)
+            elif os.path.exists(os.path.join("/home/dev", p)):
+                items_to_export.append(os.path.join("/home/dev", p))
+            else:
+                print(f"Файл не найден: {arg}")
+
+    if not items_to_export:
+        print("Не найдено файлов для экспорта. Введите 'export help' для справки.")
+        return
+
+    do_export_list(items_to_export, dest)
+
+if __name__ == "__main__":
+    main()

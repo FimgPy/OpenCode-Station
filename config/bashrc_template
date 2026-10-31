@@ -1,0 +1,41 @@
+# ~/.bashrc for user dev (CMD emulation environment)
+
+# If not running interactively, don't do anything
+case $- in
+    *i*) ;;
+      *) return;;
+esac
+
+# Source global bashrc
+if [ -f /etc/bash.bashrc ]; then
+    . /etc/bash.bashrc
+fi
+
+# History configuration
+HISTCONTROL=ignoreboth
+HISTSIZE=1000
+HISTFILESIZE=2000
+shopt -s histappend
+shopt -s checkwinsize
+
+# Source CMD mode environment
+if [ -f /etc/profile.d/cmd_mode.sh ]; then
+    . /etc/profile.d/cmd_mode.sh
+fi
+
+# Always start in Windows D:\OpenCodeProjects
+cd /home/dev/workspace/default 2>/dev/null || true
+
+# Classic Banner
+if [[ $- == *i* ]]; then
+    echo "OpenCode Command Prompt [Версия 2.2.1]"
+    echo "Сделано Антоном Ковалкиным все права защищены."
+    echo ""
+    echo "[OpenCode Command Prompt · D:\OpenCodeProjects]"
+    echo "* Быстрый запуск: введите  ai <запрос>   или   opencode"
+    echo "* Папки Linux   : введите  linux         (просмотр файлов и проектов в Linux)"
+    echo "* Экспорт       : введите  export [all/select/маска] (экспорт файлов в Windows)"
+    echo "* Список команд : введите  help          (dir, cls, cd, copy, del, tree, type...)"
+    echo "* В Проводнике  : введите  open          (открыть текущую папку в Windows)"
+    echo ""
+fi

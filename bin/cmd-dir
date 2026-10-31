@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+import os
+import sys
+import shutil
+import datetime
+
+def to_win_path(p):
+    p = os.path.abspath(p)
+    if p.startswith("/mnt/d"):
+        p = "D:" + p[len("/mnt/d"):]
+    elif p.startswith("/mnt/c"):
+        p = "C:" + p[len("/mnt/c"):]
+    elif p.startswith("/home/dev/workspace"):
+        p = "D:\\OpenCodeProjects" + p[len("/home/dev/workspace"):]
+    elif p.startswith("/home/dev"):
+        p = "C:\\WSL\\home\\dev" + p[len("/home/dev"):]
+    else:
+        p = "C:\\WSL" + p
+    p = p.replace("/", "\\")
+    if p.endswith(":") and len(p) == 2:
+        p += "\\"
+    return p
+
+def main():
+    target = "."
+    wide = False
+    args = sys.argv[1:]
+    
+    cmd_flags = {"/w", "/s", "/p", "/q", "/b", "/?", "/d", "-w", "-s", "-p", "-q", "-b", "--help"}
+    
+    filtered_args = []
+    for a in args:
+        low = a.lower()
+        if low in cmd_flags:
+            if low in {"/w", "-w"}:
+                wide = True
+            elif low in {"/?", "--help"}:
+                print("Вывод списка файлов и подпапок в папке.")
+                print("\nDIR [диск:][путь][имя_файла] [/W]")
+                print("\n  [диск:][путь]  Папка для вывода списка.")
+                print("  /W             Вывод в широком формате.")
+                return
+        else:
+            filtered_args.append(a)
+    
+    if filtered_args:
+        target = filtered_args[0]
+        # Convert Windows style path if provided
+        target = target.replace("\\", "/")
+        if len(target) >= 2 and target[1] == ':':
+            drive = target[0].lower()
+            rest = target[2:].lstrip("/")
+            target = f"/mnt/{drive}/{rest}"
+    
+    if not os.path.exists(target):
+        print(f"Файл не найден: {target}")
+        sys.exit(1)
+        
+    win_p = to_win_path(target)
+    drive_letter = win_p[0].upper() if len(win_p) >= 2 and win_p[1] == ':' else "C"
+    
+    print(f" Сделано Антоном Ковалкиным. Все права защищены.")
+    print(f" Том в устройстве {drive_letter} (OpenCode Projects)\n")
+    print(f" Содержимое папки {win_p}\n")
+    
+    try:
+        entries = sorted(os.listdir(target), key=lambda x: (not os.path.isdir(os.path.join(target, x)), x.lower()))
+    except Exception as e:
+        print(f"Ошибка доступа: {e}")
+        return
+
+    # Add . and ..
+    items = [(".", True, 0, os.path.getmtime(target) if os.path.exists(target) else 0),
+             ("..", True, 0, os.path.getmtime(os.path.dirname(os.path.abspath(target))) if os.path.exists(os.path.dirname(os.path.abspath(target))) else 0)]
+    
+    for name in entries:
+        fp = os.path.join(target, name)
+        try:
+            st = os.stat(fp)
+            is_dir = os.path.isdir(fp)
+            size = st.st_size if not is_dir else 0
+            mtime = st.st_mtime
+            items.append((name, is_dir, size, mtime))
+        except Exception:
+            pass
+
+    files_count = 0
+    dirs_count = 0
+    total_bytes = 0
+
+    if wide:
+        row = []
+        for name, is_dir, size, _ in items:
+            display_name = f"[{name}]" if is_dir else name
+            if is_dir:
+                dirs_count += 1
+            else:
+                files_count += 1
+                total_bytes += size
+            row.append(f"{display_name:<19}")
+            if len(row) == 4:
+                print(" ".join(row))
+                row = []
+        if row:
+            print(" ".join(row))
+    else:
+        for name, is_dir, size, mtime in items:
+            dt = datetime.datetime.fromtimestamp(mtime).strftime("%d.%m.%Y  %H:%M")
+            if is_dir:
+                dirs_count += 1
+                print(f"{dt}    <DIR>          {name}")
+            else:
+                files_count += 1
+                total_bytes += size
+                formatted_size = f"{size:>14,d}".replace(",", " ")
+                print(f"{dt}    {formatted_size} {name}")
+                
+    files_str = f"{files_count:>15d}".replace(",", " ")
+    bytes_str = f"{total_bytes:>17,d}".replace(",", " ")
+    dirs_str = f"{dirs_count:>16d}".replace(",", " ")
+    
+    try:
+        free_bytes = shutil.disk_usage(target).free
+        free_str = f"{free_bytes:>17,d}".replace(",", " ")
+    except Exception:
+        free_str = "        0"
+
+    print(f"{files_str} файлов {bytes_str} байт")
+    print(f"{dirs_str} папок  {free_str} байт свободно\n")
+
+if __name__ == "__main__":
+    main()
