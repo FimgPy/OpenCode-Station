@@ -11,5 +11,5 @@ elif [[ "$real" == "/mnt/"* ]]; then
 else
     echo -e "\033[1;33m[Linux Local Path]\033[0m $real"
     printf '  C:\\Users\\anton\\AppData\\Local\\wsl\\{12d6162b-feb0-4dc5-b69b-39be6464c93d}\\rootfs%s\n' "${real//\//\\}"
-    echo -e "Совет: чтобы файлы сразу появлялись в Windows, работайте в \033[1;32m~/workspace\033[0m (D:\\OpenCodeProjects)."
+    echo -e "Совет: чтобы файлы сразу появлялись в Windows, работайте в \033[1;32m~/workspace\033[0m (D:\\OpenCode-Station_Package\\workspace)."
 fi

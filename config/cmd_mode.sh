@@ -8,23 +8,25 @@ get_cmd_prompt() {
         prefix="[${OPENCODE_ENV}] "
     fi
     local p="$PWD"
-    if [[ "$p" == "/mnt/d"* ]]; then
-        p="D:${p#/mnt/d}"
-    elif [[ "$p" == "/mnt/c"* ]]; then
-        p="C:${p#/mnt/c}"
-    elif [[ "$p" == "/mnt/"* ]]; then
-        local drive=$(echo "$p" | cut -d/ -f3 | tr '[:lower:]' '[:upper:]')
-        local rest=$(echo "$p" | cut -d/ -f4-)
+    if [[ "$p" == "/mnt/d/OpenCode-Station_Package/workspace"* ]]; then
+        p="D:\OpenCode-Station_Package\workspace${p#/mnt/d/OpenCode-Station_Package/workspace}"
+    elif [[ "$p" == "/var/envs/"*"/workspace"* ]]; then
+        local env_sub=$(echo "$p" | cut -d/ -f4)
+        local rest=$(echo "$p" | cut -d/ -f6-)
         if [ -n "$rest" ]; then
-            p="${drive}:/${rest}"
+            p="D:\OpenCode-Station_Package\workspace\\${env_sub}\\${rest}"
         else
-            p="${drive}:"
+            p="D:\OpenCode-Station_Package\workspace\\${env_sub}"
         fi
     elif [[ "$p" == "/var/envs/"* ]]; then
         local env_sub=$(echo "$p" | cut -d/ -f4-)
-        p="C:\\WSL\\envs\\${env_sub}"
-    elif [[ "$p" == "/home/dev/workspace"* ]]; then
-        p="D:\OpenCodeProjects${p#/home/dev/workspace}"
+        p="C:\WSL\envs\\${env_sub}"
+    elif [[ "$p" == "/mnt/d"* ]]; then
+        p="D:${p#/mnt/d}"
+    elif [[ "$p" == "/mnt/c"* ]]; then
+        p="C:${p#/mnt/c}"
+    elif [[ "$p" == "/home/dev/workspace/default"* ]]; then
+        p="D:\OpenCode-Station_Package\workspace\default${p#/home/dev/workspace/default}"
     elif [[ "$p" == "/home/dev"* ]]; then
         p="C:\WSL\home\dev${p#/home/dev}"
     else
@@ -38,7 +40,9 @@ get_cmd_prompt() {
 }
 
 set_cmd_ps1() {
-    PS1="$(get_cmd_prompt)> "
+    local prompt_str="$(get_cmd_prompt)"
+    prompt_str="${prompt_str//\\/\\\\}"
+    PS1="${prompt_str}> "
 }
 PROMPT_COMMAND=set_cmd_ps1
 export PS1='$(get_cmd_prompt)> '
@@ -46,9 +50,9 @@ export PS1='$(get_cmd_prompt)> '
 # Drive switching
 d:() { 
     if [ -n "$OPENCODE_ENV" ] && [ "$OPENCODE_ENV" != "default" ]; then
-        builtin cd "/mnt/d/OpenCodeProjects/$OPENCODE_ENV" 2>/dev/null || builtin cd /mnt/d/OpenCodeProjects
+        builtin cd "/mnt/d/OpenCode-Station_Package/workspace/$OPENCODE_ENV" 2>/dev/null || builtin cd /mnt/d/OpenCode-Station_Package/workspace
     else
-        builtin cd /mnt/d/OpenCodeProjects/default 2>/dev/null || builtin cd /mnt/d/OpenCodeProjects
+        builtin cd /mnt/d/OpenCode-Station_Package/workspace/default 2>/dev/null || builtin cd /mnt/d/OpenCode-Station_Package/workspace
     fi
 }
 D:() { d:; }
@@ -189,21 +193,40 @@ ver() {
 }
 
 explorer() {
-    win-open "$@"
+    /usr/local/bin/explorer-cmd "$@"
 }
-
 open() {
-    win-open "$@"
+    /usr/local/bin/explorer-cmd "$@"
 }
 
 export() {
     if [ $# -eq 0 ]; then
-        /usr/local/bin/export-win
-    elif [[ "$1" == *"="* ]]; then
-        builtin export "$@"
-    else
-        /usr/local/bin/export-win "$@"
+        builtin export
+        return 0
     fi
+    if [[ "$1" == *"="* ]]; then
+        builtin export "$@"
+        return $?
+    fi
+    case "$1" in
+        all|ALL|select|SELECT|help|HELP|--help|-h|/?)
+            /usr/local/bin/export-win "$@"
+            ;;
+        *)
+            /usr/local/bin/export-win "$@"
+            ;;
+    esac
+}
+
+ai() {
+    /usr/local/bin/ai "$@"
+}
+ask() {
+    /usr/local/bin/ai "$@"
+}
+
+tree() {
+    /usr/local/bin/cmd-tree "$@"
 }
 
 linux() {
@@ -212,54 +235,56 @@ linux() {
 ldir() {
     /usr/local/bin/linux-dirs "$@"
 }
-tree() {
-    /usr/local/bin/cmd-tree "$@"
+
+opencode() {
+    /usr/local/bin/opencode "$@"
 }
 
-# Proxy management in live session
 proxy() {
     local cfg="$HOME/.proxy_config"
     local default_no_proxy="localhost,127.0.0.1,::1,local.home"
-
-    if [ ! -f "$cfg" ]; then
-        echo 'PROXY_ENABLED="no"' > "$cfg"
-        echo 'PROXY_URL=""' >> "$cfg"
-    fi
-    source "$cfg" 2>/dev/null || true
-
     case "$1" in
         on|ON)
-            if [ -z "$PROXY_URL" ]; then
-                echo "Адрес прокси не задан. Задайте прокси командой:"
-                echo "  proxy set <http://хост:порт или socks5://хост:порт>"
-                return 1
+            if [ -f "$cfg" ]; then
+                source "$cfg"
             fi
-            export http_proxy="$PROXY_URL"
-            export https_proxy="$PROXY_URL"
-            export all_proxy="$PROXY_URL"
-            export HTTP_PROXY="$PROXY_URL"
-            export HTTPS_PROXY="$PROXY_URL"
-            export ALL_PROXY="$PROXY_URL"
-            export no_proxy="$default_no_proxy"
-            export NO_PROXY="$default_no_proxy"
-            sed -i 's/^PROXY_ENABLED=.*/PROXY_ENABLED="yes"/' "$cfg" 2>/dev/null || true
-            echo "proxy = \"$PROXY_URL\"" > "$HOME/.curlrc" 2>/dev/null || true
-            echo -e "\033[1;32m[✓] Прокси активирован:\033[0m $PROXY_URL"
-            echo -e "\033[0;37mИсключения (local loopback):\033[0m $default_no_proxy"
-            /usr/local/bin/myip
+            if [ -n "$PROXY_URL" ]; then
+                echo 'PROXY_ENABLED="yes"' > "$cfg"
+                echo "PROXY_URL=\"$PROXY_URL\"" >> "$cfg"
+                export http_proxy="$PROXY_URL"
+                export https_proxy="$PROXY_URL"
+                export all_proxy="$PROXY_URL"
+                export HTTP_PROXY="$PROXY_URL"
+                export HTTPS_PROXY="$PROXY_URL"
+                export ALL_PROXY="$PROXY_URL"
+                export no_proxy="$default_no_proxy"
+                export NO_PROXY="$default_no_proxy"
+                echo "proxy = \"$PROXY_URL\"" > "$HOME/.curlrc" 2>/dev/null || true
+                echo -e "\033[1;32m[✓] Прокси включен:\033[0m $PROXY_URL"
+                echo -e "\033[0;37mИсключения (local loopback):\033[0m $default_no_proxy"
+                /usr/local/bin/myip
+            else
+                echo "[!] URL прокси не задан. Используйте: proxy set <url>"
+            fi
             ;;
         off|OFF)
-            unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY no_proxy NO_PROXY
-            sed -i 's/^PROXY_ENABLED=.*/PROXY_ENABLED="no"/' "$cfg" 2>/dev/null || true
+            if [ -f "$cfg" ]; then
+                source "$cfg"
+            fi
+            echo 'PROXY_ENABLED="no"' > "$cfg"
+            echo "PROXY_URL=\"${PROXY_URL:-}\"" >> "$cfg"
+            unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
+            export no_proxy="$default_no_proxy"
+            export NO_PROXY="$default_no_proxy"
             rm -f "$HOME/.curlrc" 2>/dev/null || true
-            echo -e "\033[1;33m[✓] Прокси отключен.\033[0m Прямое интернет-подключение."
+            echo -e "\033[1;33m[✓] Прокси отключен. Используется прямое подключение.\033[0m"
             /usr/local/bin/myip
             ;;
         set|SET)
             if [ -z "$2" ]; then
                 echo "Использование: proxy set <url>"
                 echo "Примеры:"
-                echo "  proxy set http://127.0.0.1:10808"
+                echo "  proxy set http://127.0.0.1:7890"
                 echo "  proxy set socks5://127.0.0.1:7890"
                 echo "  proxy set socks5://user:pass@host:port"
                 return 1
@@ -412,3 +437,18 @@ alias IP=ip
 # Case-insensitive tab completion
 bind 'set completion-ignore-case on' 2>/dev/null || true
 bind 'set show-all-if-ambiguous on' 2>/dev/null || true
+
+# Startup banner
+if [ -t 0 ] && [ -z "$OPENCODE_CMD_MODE_LOADED" ]; then
+    export OPENCODE_CMD_MODE_LOADED=1
+    echo "OpenCode Command Prompt [Версия 2.2.1]"
+    echo "Сделано Антоном Ковалкиным все права защищены."
+    echo ""
+    echo "[OpenCode Command Prompt · D:\OpenCode-Station_Package\workspace]"
+    echo "* Быстрый запуск: введите  ai <запрос>   или   opencode"
+    echo "* Папки Linux   : введите  linux         (просмотр файлов и проектов в Linux)"
+    echo "* Экспорт       : введите  export [all/select/маска] (экспорт файлов в Windows)"
+    echo "* Список команд : введите  help          (dir, cls, cd, copy, del, tree, type, env, switch, myip...)"
+    echo "* В Проводнике  : введите  open          (открыть текущую папку в Windows)"
+    echo ""
+fi

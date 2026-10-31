@@ -11,7 +11,7 @@ def to_win_path(p):
     elif p.startswith("/mnt/c"):
         p = "C:" + p[len("/mnt/c"):]
     elif p.startswith("/home/dev/workspace"):
-        p = "D:\\OpenCodeProjects" + p[len("/home/dev/workspace"):]
+        p = "D:\\OpenCode-Station_Package\\workspace" + p[len("/home/dev/workspace"):]
     elif p.startswith("/home/dev"):
         p = "C:\\WSL\\home\\dev" + p[len("/home/dev"):]
     else:

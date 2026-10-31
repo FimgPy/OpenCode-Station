@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# OpenCode execution wrapper v2.9
+# OpenCode execution wrapper v4.0 (Independent Anonymous Environments)
 # Сделано Антоном Ковалкиным все права защищены.
 
 # 1. Определение активной среды
@@ -14,13 +14,9 @@ if [ -z "$cur_env" ]; then
 fi
 export OPENCODE_ENV="$cur_env"
 
-# 2. Определение домашней директории среды для полной изоляции кэша, базы и настроек
+# 2. Определение домашней директории среды для полной изоляции кэша и настроек
 if [ "$cur_env" = "default" ]; then
-    if [ -d "/var/envs/default/home" ]; then
-        ENV_HOME="/var/envs/default/home"
-    else
-        ENV_HOME="/home/dev"
-    fi
+    ENV_HOME="/home/dev"
     ENV_WS="/home/dev/workspace/default"
 else
     ENV_HOME="/var/envs/${cur_env}/home"
@@ -34,59 +30,26 @@ export XDG_STATE_HOME="${ENV_HOME}/.local/state"
 export XDG_CACHE_HOME="${ENV_HOME}/.cache"
 mkdir -p "${XDG_DATA_HOME}" "${XDG_CONFIG_HOME}" "${XDG_STATE_HOME}" "${XDG_CACHE_HOME}" 2>/dev/null
 
-# 2.5 Гарантированное подавление всплывающих окон лимитов и преднастройка рабочей бесплатной модели
+# 3. Гарантированное подавление всплывающих окон лимитов
 mkdir -p "${XDG_STATE_HOME}/opencode/latest/tui" "${XDG_CONFIG_HOME}/opencode" 2>/dev/null
-echo '{"lastSeenAt":1792847625488,"dontShow":true}' > "${XDG_STATE_HOME}/opencode/latest/tui/go-upsell.json" 2>/dev/null || true
+echo '{"lastSeenAt":9999999999999,"dontShow":true}' > "${XDG_STATE_HOME}/opencode/latest/tui/go-upsell.json" 2>/dev/null || true
 
-if [ ! -f "${XDG_STATE_HOME}/opencode/model.json" ]; then
-    cat << 'EOF_MODEL' > "${XDG_STATE_HOME}/opencode/model.json" 2>/dev/null || true
-{
-  "recent": [
-    {
-      "providerID": "opencode",
-      "modelID": "deepseek-v4.1-flash-free"
-    }
-  ],
-  "favorite": [
-    {
-      "providerID": "opencode",
-      "modelID": "deepseek-v4.1-flash-free"
-    }
-  ],
-  "variant": {
-    "opencode/deepseek-v4.1-flash-free": "max"
-  }
-}
-EOF_MODEL
+# 4. Чистая преднастройка: НЕ форсируем платную/чужую модель. Если есть старый big-pickle - удаляем.
+if [ -f "${XDG_STATE_HOME}/opencode/model.json" ]; then
+    if grep -q "big-pickle" "${XDG_STATE_HOME}/opencode/model.json" 2>/dev/null; then
+        rm -f "${XDG_STATE_HOME}/opencode/model.json" 2>/dev/null || true
+    fi
 fi
 
 if [ ! -f "${XDG_CONFIG_HOME}/opencode/opencode.json" ]; then
     cat << 'EOF_CFG' > "${XDG_CONFIG_HOME}/opencode/opencode.json" 2>/dev/null || true
 {
-  "$schema": "https://opencode.ai/config.json",
-  "model": "opencode/deepseek-v4.1-flash-free",
-  "providers": {
-    "opencode": {
-      "models": {
-        "deepseek-v4.1-flash-free": {
-          "limit": {
-            "context": 1000000,
-            "output": 32000
-          }
-        }
-      }
-    }
-  }
+  "$schema": "https://opencode.ai/config.json"
 }
 EOF_CFG
 fi
 
-if [ -d "$ENV_WS" ] && [ ! -f "$ENV_WS/.opencode/opencode.json" ]; then
-    mkdir -p "$ENV_WS/.opencode" 2>/dev/null || true
-    cp "${XDG_CONFIG_HOME}/opencode/opencode.json" "$ENV_WS/.opencode/opencode.json" 2>/dev/null || true
-fi
-
-# 3. Аппаратная изоляция: динамическая запись Machine ID текущей среды
+# 5. Аппаратная изоляция: динамическая запись Machine ID текущей среды
 mid_file="/var/envs/${cur_env}/machine-id"
 mid=""
 if [ -f "$mid_file" ]; then
@@ -101,91 +64,72 @@ fi
 echo "$mid" > /etc/machine-id 2>/dev/null || true
 echo "$mid" > /var/lib/dbus/machine-id 2>/dev/null || true
 
-# 4. Настройка прокси для текущей среды
+# 6. Удаление разделяемых файлов службы для полной изоляции среды
+rm -f "${XDG_STATE_HOME}/opencode/service.json" "${XDG_CONFIG_HOME}/opencode/service.json" 2>/dev/null || true
+
+# 7. Настройка прокси (локальный или глобальный)
+proxy_notice=""
 if [ -f "$ENV_HOME/.proxy_config" ]; then
     source "$ENV_HOME/.proxy_config"
-    if [ "$PROXY_ENABLED" = "yes" ] && [ -n "$PROXY_URL" ]; then
-        # Нормализация схемы URL
-        case "$PROXY_URL" in
-            *://*) ;;
-            *) PROXY_URL="http://${PROXY_URL}" ;;
-        esac
+fi
 
-        case "$PROXY_URL" in
-            socks5://*|socks5h://*|socks4://*|socks4a://*|socks://*)
-                # SOCKS-прокси: запуск локального моста на 127.0.0.1:10800 для совместимости с Bun
-                /usr/local/bin/opencode-proxy-bridge start "$PROXY_URL" 10800 >/dev/null 2>&1
-                effective_proxy="http://127.0.0.1:10800"
-                ;;
-            *)
-                effective_proxy="$PROXY_URL"
-                ;;
-        esac
-        export HTTP_PROXY="$effective_proxy"
-        export HTTPS_PROXY="$effective_proxy"
-        export http_proxy="$effective_proxy"
-        export https_proxy="$effective_proxy"
-        export ALL_PROXY="$effective_proxy"
-        export all_proxy="$effective_proxy"
-    else
-        unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy
+# Если для среды локально прокси не включен, проверяем глобальный прокси
+if [ "$PROXY_ENABLED" != "yes" ] && [ -f "/var/envs/global_proxy.json" ]; then
+    g_enabled=$(python3 -c "import json; d=json.load(open('/var/envs/global_proxy.json')); print('yes' if d.get('enabled') else 'no')" 2>/dev/null || echo "no")
+    if [ "$g_enabled" = "yes" ]; then
+        PROXY_ENABLED="yes"
+        PROXY_URL=$(python3 -c "import json; d=json.load(open('/var/envs/global_proxy.json')); print(d.get('url',''))" 2>/dev/null || echo "")
     fi
+fi
+
+if [ "$PROXY_ENABLED" = "yes" ] && [ -n "$PROXY_URL" ]; then
+    case "$PROXY_URL" in
+        *://*) ;;
+        *) PROXY_URL="http://${PROXY_URL}" ;;
+    esac
+
+    case "$PROXY_URL" in
+        socks5://*|socks5h://*|socks4://*|socks4a://*|socks://*)
+            /usr/local/bin/opencode-proxy-bridge start "$PROXY_URL" 10800 >/dev/null 2>&1
+            effective_proxy="http://127.0.0.1:10800"
+            ;;
+        *)
+            effective_proxy="$PROXY_URL"
+            ;;
+    esac
+
+    export HTTP_PROXY="$effective_proxy"
+    export HTTPS_PROXY="$effective_proxy"
+    export http_proxy="$effective_proxy"
+    export https_proxy="$effective_proxy"
+    export ALL_PROXY="$effective_proxy"
+    export all_proxy="$effective_proxy"
 else
     unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy
 fi
 
-# Жесткое исключение loopback адресов (чтобы локальный Bun RPC никогда не перенаправлялся в прокси)
 export NO_PROXY="127.0.0.1,localhost,::1"
 export no_proxy="127.0.0.1,localhost,::1"
 
-# 5. Переход в рабочую папку среды если текущая папка системная
+# 8. Переход в рабочую папку среды
 if [ -d "$ENV_WS" ]; then
-    case "$(pwd)" in
-        /home/dev|/root|/var/envs)
-            cd "$ENV_WS" 2>/dev/null || true
-            ;;
-    esac
+    cd "$ENV_WS" 2>/dev/null || true
 fi
 
-echo "=============================================================================="
-echo "  OpenCode Station v2.9"
-echo "  Среда: [${cur_env}]"
-echo "  Рабочая папка: $(pwd)"
-echo "  Machine ID: ${mid:0:12}..."
-if [ -n "$HTTP_PROXY" ]; then
-    echo "  Прокси активен: ${HTTP_PROXY}"
-else
-    echo "  Сеть: Прямое подключение (без прокси)"
-fi
-echo "  Сделано Антоном Ковалкиным все права защищены."
-echo "  [Подсказка] Чтобы выйти в терминал: введите /exit или нажмите Ctrl+D"
-echo "=============================================================================="
-
-# 6. Обработка вспомогательных флагов
-for arg in "$@"; do
-    if [ "$arg" = "--help" ] || [ "$arg" = "-h" ] || [ "$arg" = "--version" ] || [ "$arg" = "-v" ]; then
-        exec /usr/local/bin/opencode-bin "$@"
+# 9. Информационная шапка при интерактивном запуске
+if [ -t 0 ] && [ "$1" != "run" ] && [ "$1" != "api" ] && [ "$1" != "models" ]; then
+    echo "=============================================================================="
+    echo "  OpenCode Station [Сделано Антоном Ковалкиным все права защищены]"
+    echo "  Среда: [${cur_env}] | Machine ID: ${mid:0:12}..."
+    echo "  Рабочая папка: $(pwd)"
+    if [ -n "$HTTP_PROXY" ]; then
+        echo "  Сеть: Прокси активен (${HTTP_PROXY})"
+    else
+        echo "  Сеть: Прямое изолированное подключение"
     fi
-done
+    echo "  [Подсказка] Выход в терминал: введите /exit или нажмите Ctrl+D"
+    echo "=============================================================================="
+fi
 
-case "$1" in
-    serve|service|upgrade|update|uninstall|reload|pair|acp|api|mcp|plugin|auth|models|stats|mini|run|session)
-        exec /usr/local/bin/opencode-bin "$@"
-        ;;
-    *)
-        has_session_arg=false
-        for arg in "$@"; do
-            if [ "$arg" = "-c" ] || [ "$arg" = "--continue" ] || [ "$arg" = "-s" ] || [ "$arg" = "--session" ]; then
-                has_session_arg=true
-                break
-            fi
-        done
-
-        if [ "$has_session_arg" = true ]; then
-            exec /usr/local/bin/opencode-bin --standalone "$@"
-        else
-            NEW_SES_ID="ses_$(head -c 16 /dev/urandom | md5sum | head -c 20)"
-            exec /usr/local/bin/opencode-bin --standalone -s "$NEW_SES_ID" "$@"
-        fi
-        ;;
-esac
+# 10. Запуск изолированного OpenCode
+exec /usr/local/bin/opencode-bin "$@"

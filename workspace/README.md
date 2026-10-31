@@ -1,7 +1,7 @@
 # OpenCode Projects (Windows & WSL Shared Workspace)
 # Сделано Антоном Ковалкиным все права защищены.
 
-Рабочая папка проектов, синхронизированная между Windows (`D:\OpenCodeProjects`) и подсистемой WSL.
+Рабочая папка проектов, синхронизированная между Windows (`D:\OpenCode-Station_Package\workspace`) и подсистемой WSL.
 
 ## Правила кроссплатформенности:
 

@@ -15,58 +15,75 @@ import subprocess
 
 def seed_env_opencode_config(home_dir, ws_dir=None):
     try:
-        model_data = {
-            "recent": [{"providerID": "opencode", "modelID": "deepseek-v4.1-flash-free"}],
-            "favorite": [{"providerID": "opencode", "modelID": "deepseek-v4.1-flash-free"}],
-            "variant": {"opencode/deepseek-v4.1-flash-free": "max"}
-        }
-        upsell_data = {
-            "lastSeenAt": 1792847625488,
-            "dontShow": True
-        }
-        opencode_json = {
-            "$schema": "https://opencode.ai/config.json",
-            "model": "opencode/deepseek-v4.1-flash-free",
-            "providers": {
-                "opencode": {
-                    "models": {
-                        "deepseek-v4.1-flash-free": {
-                            "limit": {
-                                "context": 1000000,
-                                "output": 32000
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        tui_dir = os.path.join(home_dir, ".local", "state", "opencode", "latest", "tui")
-        os.makedirs(tui_dir, exist_ok=True)
-        with open(os.path.join(tui_dir, "go-upsell.json"), "w", encoding="utf-8") as f:
-            json.dump(upsell_data, f, indent=2)
+        prov_cfg = {"provider": "opencode", "model": "", "apiKey": ""}
+        if os.path.exists("/var/envs/provider_config.json"):
+            try:
+                with open("/var/envs/provider_config.json", "r", encoding="utf-8") as f:
+                    prov_cfg = json.load(f)
+            except Exception:
+                pass
 
-        state_dir = os.path.join(home_dir, ".local", "state", "opencode")
-        os.makedirs(state_dir, exist_ok=True)
-        with open(os.path.join(state_dir, "model.json"), "w", encoding="utf-8") as f:
-            json.dump(model_data, f, indent=2)
+        prov = prov_cfg.get("provider", "opencode")
+        model = prov_cfg.get("model", "").strip()
+        clean_model = model.split("/")[-1] if model else ""
+        api_key = prov_cfg.get("apiKey", "").strip()
+
+        opencode_json = {
+            "$schema": "https://opencode.ai/config.json"
+        }
+        if model:
+            opencode_json["model"] = model
+
+        if prov == "google" and api_key:
+            opencode_json["providers"] = {"google": {"settings": {"apiKey": api_key}}}
+        elif prov == "groq" and api_key:
+            opencode_json["providers"] = {"groq": {"settings": {"apiKey": api_key}}}
+        elif prov == "openrouter" and api_key:
+            opencode_json["providers"] = {"openrouter": {"settings": {"apiKey": api_key}}}
+        elif prov == "deepseek" and api_key:
+            opencode_json["providers"] = {"deepseek": {"settings": {"apiKey": api_key}}}
 
         cfg_dir = os.path.join(home_dir, ".config", "opencode")
         os.makedirs(cfg_dir, exist_ok=True)
         with open(os.path.join(cfg_dir, "opencode.json"), "w", encoding="utf-8") as f:
             json.dump(opencode_json, f, indent=2)
 
-        if ws_dir and os.path.exists(ws_dir):
-            ws_cfg = os.path.join(ws_dir, ".opencode")
-            os.makedirs(ws_cfg, exist_ok=True)
-            with open(os.path.join(ws_cfg, "opencode.json"), "w", encoding="utf-8") as f:
-                json.dump(opencode_json, f, indent=2)
-    except Exception as e:
-        pass
+        state_dir = os.path.join(home_dir, ".local", "state", "opencode")
+        os.makedirs(state_dir, exist_ok=True)
+        tui_dir = os.path.join(state_dir, "latest", "tui")
+        os.makedirs(tui_dir, exist_ok=True)
 
+        with open(os.path.join(tui_dir, "go-upsell.json"), "w", encoding="utf-8") as f:
+            json.dump({"lastSeenAt": 9999999999999, "dontShow": True}, f, indent=2)
+
+        model_json_path = os.path.join(state_dir, "model.json")
+        if clean_model:
+            with open(model_json_path, "w", encoding="utf-8") as f:
+                json.dump({
+                    "recent": [{"providerID": prov, "modelID": clean_model}],
+                    "favorite": [{"providerID": prov, "modelID": clean_model}],
+                    "variant": {}
+                }, f, indent=2)
+        else:
+            # DO NOT force any default model like big-pickle! Leave environment clean.
+            # Сделано Антоном Ковалкиным все права защищены.
+            if os.path.exists(model_json_path):
+                try: os.remove(model_json_path)
+                except Exception: pass
+
+        # Remove stale service.json for total environment isolation
+        for p in [os.path.join(state_dir, "service.json"), os.path.join(cfg_dir, "service.json")]:
+            if os.path.exists(p):
+                try: os.remove(p)
+                except Exception: pass
+    except Exception:
+        pass
 
 ENVS_DIR = "/var/envs"
 MANIFEST_FILE = os.path.join(ENVS_DIR, "manifest.json")
-WIN_PROJECTS_DIR = "/mnt/d/OpenCodeProjects"
+WIN_PROJECTS_DIR = "/mnt/d/OpenCode-Station_Package/workspace"
+if not os.path.exists("/mnt/d"):
+    WIN_PROJECTS_DIR = "/mnt/c/OpenCode-Station_Package/workspace"
 
 RANDOM_NAMES = [
     "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta",
@@ -95,7 +112,7 @@ def ensure_manifest():
                     "machine_id": default_machine_id,
                     "home": "/home/dev",
                     "workspace": "/home/dev/workspace/default",
-                    "workspace_win": "D:\\OpenCodeProjects\\default",
+                    "workspace_win": "D:\\OpenCode-Station_Package\\workspace\\default",
                     "created_at": "2026-10-29 21:00:00",
                     "description": "Основная среда по умолчанию",
                     "proxy_url": "",
@@ -112,6 +129,17 @@ def ensure_manifest():
                 return json.load(f)
         except Exception:
             return {"active": "default", "environments": {}}
+
+GLOBAL_PROXY_FILE = "/var/envs/global_proxy.json"
+
+def get_global_proxy():
+    if os.path.exists(GLOBAL_PROXY_FILE):
+        try:
+            with open(GLOBAL_PROXY_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"enabled": False, "url": ""}
 
 def save_manifest(data):
     with open(MANIFEST_FILE, "w", encoding="utf-8") as f:
@@ -155,7 +183,7 @@ def create_environment(name=None):
     env_path = os.path.join(ENVS_DIR, name)
     env_home = os.path.join(env_path, "home")
     env_workspace = os.path.join(env_path, "workspace")
-    win_workspace_path = f"D:\\OpenCodeProjects\\{name}"
+    win_workspace_path = f"D:\\OpenCode-Station_Package\\workspace\\{name}"
 
     print(f"\n[+] Создание абсолютно новой анонимной среды: {name} ...")
 
@@ -163,7 +191,7 @@ def create_environment(name=None):
     os.makedirs(env_path, exist_ok=True)
     os.makedirs(env_home, exist_ok=True)
     os.makedirs(env_workspace, exist_ok=True)
-    os.makedirs(f"/mnt/d/OpenCodeProjects/{name}", exist_ok=True)
+    os.makedirs(f"/mnt/d/OpenCode-Station_Package/workspace/{name}", exist_ok=True)
 
     # 2. Machine ID and Hostname files
     with open(os.path.join(env_path, "machine-id"), "w") as f:
@@ -205,6 +233,7 @@ def create_environment(name=None):
 export HOME="{env_home}"
 export XDG_DATA_HOME="{env_home}/.local/share"
 export XDG_CONFIG_HOME="{env_home}/.config"
+export XDG_STATE_HOME="{env_home}/.local/state"
 export XDG_CACHE_HOME="{env_home}/.cache"
 export NO_PROXY="127.0.0.1,localhost,::1"
 export no_proxy="127.0.0.1,localhost,::1"
@@ -231,9 +260,28 @@ cd "{env_workspace}" 2>/dev/null || true
     except Exception:
         pass
 
-    seed_env_opencode_config(env_home, env_ws)
     seed_env_opencode_config(env_home, env_workspace)
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    gp = get_global_proxy()
+    gp_url = gp.get("url", "")
+    gp_enabled = gp.get("enabled", False)
+    if gp_enabled and gp_url:
+        p_url = gp_url
+        p_enabled = True
+        try:
+            with open(os.path.join(env_home, ".proxy_config"), "w") as f:
+                f.write(f'PROXY_ENABLED="yes"\nPROXY_URL="{p_url}"\n')
+        except Exception:
+            pass
+    else:
+        p_url = ""
+        p_enabled = False
+        try:
+            with open(os.path.join(env_home, ".proxy_config"), "w") as f:
+                f.write('PROXY_ENABLED="no"\nPROXY_URL=""\n')
+        except Exception:
+            pass
+
     envs[name] = {
         "name": name,
         "hostname": hostname,
@@ -243,8 +291,8 @@ cd "{env_workspace}" 2>/dev/null || true
         "workspace_win": win_workspace_path,
         "created_at": now_str,
         "description": f"Анонимная среда {name}",
-        "proxy_url": "",
-        "proxy_enabled": False
+        "proxy_url": p_url,
+        "proxy_enabled": p_enabled
     }
     save_manifest(data)
 
@@ -346,6 +394,7 @@ def switch_environment(name):
     env_copy["HOME"] = home
     env_copy["XDG_DATA_HOME"] = os.path.join(home, ".local", "share")
     env_copy["XDG_CONFIG_HOME"] = os.path.join(home, ".config")
+    env_copy["XDG_STATE_HOME"] = os.path.join(home, ".local", "state")
     env_copy["XDG_CACHE_HOME"] = os.path.join(home, ".cache")
 
     os.execvpe("bash", ["bash", "--rcfile", bashrc, "-i"], env_copy)
@@ -429,12 +478,12 @@ def delete_environment(name, delete_workspace=False):
     # 2. Delete workspace if requested
     if delete_workspace:
         if name == "default":
-            for ws in ["/home/dev/workspace/default", "/mnt/d/OpenCodeProjects/default"]:
+            for ws in ["/home/dev/workspace/default", "/mnt/d/OpenCode-Station_Package/workspace/default"]:
                 if os.path.exists(ws):
                     shutil.rmtree(ws, ignore_errors=True)
             print("    [x] Папка проекта default на диске D и в Linux удалена.")
         else:
-            ws_paths = [info.get("workspace"), f"/mnt/d/OpenCodeProjects/{name}", f"/var/envs/{name}/workspace"]
+            ws_paths = [info.get("workspace"), f"/mnt/d/OpenCode-Station_Package/workspace/{name}", f"/var/envs/{name}/workspace"]
             for ws in ws_paths:
                 if ws and os.path.exists(ws):
                     shutil.rmtree(ws, ignore_errors=True)

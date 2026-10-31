@@ -73,7 +73,7 @@ def main():
             if entry.is_symlink():
                 target_link = os.readlink(entry.path)
                 if "/mnt/d" in target_link:
-                    note = "-> Windows диск D: (OpenCodeProjects)"
+                    note = "-> Windows диск D: (OpenCode-Station_Package/workspace)"
                 elif "/mnt/c" in target_link:
                     note = "-> Windows диск C:"
                 else:
@@ -102,8 +102,8 @@ def main():
     print("Быстрые команды для работы с Linux:")
     print("  open /home/dev    -> Открыть домашнюю папку Linux в Проводнике Windows")
     print("  cd /home/dev      -> Перейти в домашнюю папку Linux в терминале")
-    print("  export linux      -> Экспортировать все файлы из Linux в D:\\OpenCodeProjects")
-    print("  d:                -> Вернуться в рабочую папку Windows D:\\OpenCodeProjects")
+    print("  export linux      -> Экспортировать все файлы из Linux в D:\\OpenCode-Station_Package\\workspace")
+    print("  d:                -> Вернуться в рабочую папку Windows D:\\OpenCode-Station_Package\\workspace")
     print("==============================================================================\n")
 
 if __name__ == "__main__":

@@ -1,45 +1,45 @@
 @echo off
 chcp 1251 >nul
-title OpenCode Station - Установка
+title OpenCode Station - Г“Г±ГІГ Г­Г®ГўГЄГ 
 echo ==============================================================================
-echo                 OpenCode Station - Мастер автоматической установки
-echo                 Сделано Антоном Ковалкиным все права защищены.
+echo                 OpenCode Station - ГЊГ Г±ГІГҐГ° Г ГўГІГ®Г¬Г ГІГЁГ·ГҐГ±ГЄГ®Г© ГіГ±ГІГ Г­Г®ГўГЄГЁ
+echo                 Г‘Г¤ГҐГ«Г Г­Г® ГЂГ­ГІГ®Г­Г®Г¬ ГЉГ®ГўГ Г«ГЄГЁГ­Г»Г¬ ГўГ±ГҐ ГЇГ°Г ГўГ  Г§Г Г№ГЁГ№ГҐГ­Г».
 echo ==============================================================================
 echo.
 
-:: 1. Проверка наличия WSL
+:: 1. ГЏГ°Г®ГўГҐГ°ГЄГ  Г­Г Г«ГЁГ·ГЁГї WSL
 wsl --status >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [!] WSL подсистема не обнаружена.
-    echo [*] Установка WSL Ubuntu (может потребоваться подтверждение администратора)...
+    echo [!] WSL ГЇГ®Г¤Г±ГЁГ±ГІГҐГ¬Г  Г­ГҐ Г®ГЎГ­Г Г°ГіГ¦ГҐГ­Г .
+    echo [*] Г“Г±ГІГ Г­Г®ГўГЄГ  WSL Ubuntu (Г¬Г®Г¦ГҐГІ ГЇГ®ГІГ°ГҐГЎГ®ГўГ ГІГјГ±Гї ГЇГ®Г¤ГІГўГҐГ°Г¦Г¤ГҐГ­ГЁГҐ Г Г¤Г¬ГЁГ­ГЁГ±ГІГ°Г ГІГ®Г°Г )...
     wsl --install -d Ubuntu
     echo.
-    echo [*] Если система попросила перезагрузить компьютер — выполните перезагрузку,
-    echo     после чего запустите setup.bat еще раз.
+    echo [*] Г…Г±Г«ГЁ Г±ГЁГ±ГІГҐГ¬Г  ГЇГ®ГЇГ°Г®Г±ГЁГ«Г  ГЇГҐГ°ГҐГ§Г ГЈГ°ГіГ§ГЁГІГј ГЄГ®Г¬ГЇГјГѕГІГҐГ° В— ГўГ»ГЇГ®Г«Г­ГЁГІГҐ ГЇГҐГ°ГҐГ§Г ГЈГ°ГіГ§ГЄГі,
+    echo     ГЇГ®Г±Г«ГҐ Г·ГҐГЈГ® Г§Г ГЇГіГ±ГІГЁГІГҐ setup.bat ГҐГ№ГҐ Г°Г Г§.
     pause
     exit /b
 )
 
-echo [1/5] Проверка подсистемы WSL... [OK]
+echo [1/5] ГЏГ°Г®ГўГҐГ°ГЄГ  ГЇГ®Г¤Г±ГЁГ±ГІГҐГ¬Г» WSL... [OK]
 
-:: 2. Определение целевой папки экспорта на Windows
-set "PROJECTS_ROOT=D:\OpenCodeProjects"
+:: 2. ГЋГЇГ°ГҐГ¤ГҐГ«ГҐГ­ГЁГҐ Г¶ГҐГ«ГҐГўГ®Г© ГЇГ ГЇГЄГЁ ГЅГЄГ±ГЇГ®Г°ГІГ  Г­Г  Windows
+set "PROJECTS_ROOT=D:\OpenCode-Station_Package\workspace"
 if not exist "D:\" (
-    set "PROJECTS_ROOT=C:\OpenCodeProjects"
+    set "PROJECTS_ROOT=C:\OpenCode-Station_Package/workspace"
 )
 set "TARGET_DIR=%PROJECTS_ROOT%\default"
 if not exist "%PROJECTS_ROOT%" mkdir "%PROJECTS_ROOT%"
 if not exist "%TARGET_DIR%" mkdir "%TARGET_DIR%"
 
-echo [2/5] Подготовка папки экспорта (%TARGET_DIR%)... [OK]
+echo [2/5] ГЏГ®Г¤ГЈГ®ГІГ®ГўГЄГ  ГЇГ ГЇГЄГЁ ГЅГЄГ±ГЇГ®Г°ГІГ  (%TARGET_DIR%)... [OK]
 
-:: 3. Определение пути исходных файлов пакета в WSL
+:: 3. ГЋГЇГ°ГҐГ¤ГҐГ«ГҐГ­ГЁГҐ ГЇГіГІГЁ ГЁГ±ГµГ®Г¤Г­Г»Гµ ГґГ Г©Г«Г®Гў ГЇГ ГЄГҐГІГ  Гў WSL
 set "CURR_DIR=%~dp0"
 set "CURR_DIR=%CURR_DIR:\=/%"
 for /f "usebackq delims=" %%i in (`wsl wslpath "%CURR_DIR%"`) do set "WSL_SRC=%%i"
 
-:: 4. Установка системных зависимостей, пользователя dev и компонентов OpenCode
-echo [3/5] Развертывание пользователя, бинарников и утилит в Linux...
+:: 4. Г“Г±ГІГ Г­Г®ГўГЄГ  Г±ГЁГ±ГІГҐГ¬Г­Г»Гµ Г§Г ГўГЁГ±ГЁГ¬Г®Г±ГІГҐГ©, ГЇГ®Г«ГјГ§Г®ГўГ ГІГҐГ«Гї dev ГЁ ГЄГ®Г¬ГЇГ®Г­ГҐГ­ГІГ®Гў OpenCode
+echo [3/5] ГђГ Г§ГўГҐГ°ГІГ»ГўГ Г­ГЁГҐ ГЇГ®Г«ГјГ§Г®ГўГ ГІГҐГ«Гї, ГЎГЁГ­Г Г°Г­ГЁГЄГ®Гў ГЁ ГіГІГЁГ«ГЁГІ Гў Linux...
 wsl -u root -- bash -c "
     if ! command -v python3 >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then
         apt-get update -y && apt-get install -y python3 curl psmisc
@@ -58,7 +58,7 @@ wsl -u root -- bash -c "
     chmod +x /usr/local/bin/* 2>/dev/null || true
 
     if [ ! -f /usr/local/bin/opencode-bin ]; then
-        echo '[*] Загрузка ядра OpenCode CLI...'
+        echo '[*] Г‡Г ГЈГ°ГіГ§ГЄГ  ГїГ¤Г°Г  OpenCode CLI...'
         curl -fsSL https://opencode.ai/v2/install | bash
         if [ -f /root/.opencode/bin/opencode ]; then
             cp /root/.opencode/bin/opencode /usr/local/bin/opencode-bin
@@ -91,13 +91,13 @@ wsl -u root -- bash -c "
     chmod -R 775 /var/envs 2>/dev/null || true
 "
 
-echo [4/5] Настройка системного профиля bash и прокси-загрузчика...
+echo [4/5] ГЌГ Г±ГІГ°Г®Г©ГЄГ  Г±ГЁГ±ГІГҐГ¬Г­Г®ГЈГ® ГЇГ°Г®ГґГЁГ«Гї bash ГЁ ГЇГ°Г®ГЄГ±ГЁ-Г§Г ГЈГ°ГіГ§Г·ГЁГЄГ ...
 wsl -u root -- bash -c "
     if ! grep -q 'proxy_config' /etc/bash.bashrc 2>/dev/null; then
         cat << 'EOF' >> /etc/bash.bashrc
 
 # Automatic per-environment proxy loader
-# Сделано Антоном Ковалкиным все права защищены.
+# Г‘Г¤ГҐГ«Г Г­Г® ГЂГ­ГІГ®Г­Г®Г¬ ГЉГ®ГўГ Г«ГЄГЁГ­Г»Г¬ ГўГ±ГҐ ГЇГ°Г ГўГ  Г§Г Г№ГЁГ№ГҐГ­Г».
 if [ -f "\$HOME/.proxy_config" ]; then
     source "\$HOME/.proxy_config"
     if [ "\$PROXY_ENABLED" = "yes" ] && [ -n "\$PROXY_URL" ]; then
@@ -121,14 +121,14 @@ EOF
     fi
 "
 
-echo [5/5] Подготовка изолированной рабочей среды...
+echo [5/5] ГЏГ®Г¤ГЈГ®ГІГ®ГўГЄГ  ГЁГ§Г®Г«ГЁГ°Г®ГўГ Г­Г­Г®Г© Г°Г ГЎГ®Г·ГҐГ© Г±Г°ГҐГ¤Г»...
 wsl -u dev -- bash -c "
     mkdir -p /home/dev/workspace/default
     if [ ! -f /home/dev/workspace/default/README.md ]; then
-        echo '# Среда: default (Linux Ext4)' > /home/dev/workspace/default/README.md
-        echo '* Папка Linux: /home/dev/workspace/default' >> /home/dev/workspace/default/README.md
-        echo '* Экспорт на диск Windows: %TARGET_DIR%' >> /home/dev/workspace/default/README.md
-        echo '* Сделано Антоном Ковалкиным все права защищены.' >> /home/dev/workspace/default/README.md
+        echo '# Г‘Г°ГҐГ¤Г : default (Linux Ext4)' > /home/dev/workspace/default/README.md
+        echo '* ГЏГ ГЇГЄГ  Linux: /home/dev/workspace/default' >> /home/dev/workspace/default/README.md
+        echo '* ГќГЄГ±ГЇГ®Г°ГІ Г­Г  Г¤ГЁГ±ГЄ Windows: %TARGET_DIR%' >> /home/dev/workspace/default/README.md
+        echo '* Г‘Г¤ГҐГ«Г Г­Г® ГЂГ­ГІГ®Г­Г®Г¬ ГЉГ®ГўГ Г«ГЄГЁГ­Г»Г¬ ГўГ±ГҐ ГЇГ°Г ГўГ  Г§Г Г№ГЁГ№ГҐГ­Г».' >> /home/dev/workspace/default/README.md
     fi
 "
 
@@ -138,14 +138,14 @@ if not exist "%TARGET_DIR%\README.md" (
 
 echo.
 echo ==============================================================================
-echo [УСПЕХ] OpenCode Station успешно развернута и готова к работе!
+echo [Г“Г‘ГЏГ…Г•] OpenCode Station ГіГ±ГЇГҐГёГ­Г® Г°Г Г§ГўГҐГ°Г­ГіГІГ  ГЁ ГЈГ®ГІГ®ГўГ  ГЄ Г°Г ГЎГ®ГІГҐ!
 echo.
-echo  * Запуск Панели управления (GUI)     : запустите start_gui.bat
-echo  * Запуск в браузере (Веб-терминал)   : запустите start_web.bat
-echo  * Запуск в Windows консоли           : запустите start.bat
-echo  * Папка среды default на Windows     : %TARGET_DIR%
+echo  * Г‡Г ГЇГіГ±ГЄ ГЏГ Г­ГҐГ«ГЁ ГіГЇГ°Г ГўГ«ГҐГ­ГЁГї (GUI)     : Г§Г ГЇГіГ±ГІГЁГІГҐ start_gui.bat
+echo  * Г‡Г ГЇГіГ±ГЄ Гў ГЎГ°Г ГіГ§ГҐГ°ГҐ (Г‚ГҐГЎ-ГІГҐГ°Г¬ГЁГ­Г Г«)   : Г§Г ГЇГіГ±ГІГЁГІГҐ start_web.bat
+echo  * Г‡Г ГЇГіГ±ГЄ Гў Windows ГЄГ®Г­Г±Г®Г«ГЁ           : Г§Г ГЇГіГ±ГІГЁГІГҐ start.bat
+echo  * ГЏГ ГЇГЄГ  Г±Г°ГҐГ¤Г» default Г­Г  Windows     : %TARGET_DIR%
 echo.
-echo  Сделано Антоном Ковалкиным все права защищены.
+echo  Г‘Г¤ГҐГ«Г Г­Г® ГЂГ­ГІГ®Г­Г®Г¬ ГЉГ®ГўГ Г«ГЄГЁГ­Г»Г¬ ГўГ±ГҐ ГЇГ°Г ГўГ  Г§Г Г№ГЁГ№ГҐГ­Г».
 echo ==============================================================================
 echo.
 pause

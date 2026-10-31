@@ -12,6 +12,33 @@ import subprocess
 def check_ip():
     proxy_env = os.environ.get("http_proxy") or os.environ.get("all_proxy") or os.environ.get("HTTP_PROXY")
     
+    # Fallback to local .proxy_config or global proxy
+    if not proxy_env:
+        home_cfg = os.path.join(os.environ.get("HOME", "/home/dev"), ".proxy_config")
+        if os.path.exists(home_cfg):
+            try:
+                with open(home_cfg) as f:
+                    enabled = False
+                    u = ""
+                    for line in f:
+                        if line.startswith("PROXY_ENABLED="):
+                            enabled = "yes" in line.lower()
+                        elif line.startswith("PROXY_URL="):
+                            u = line.split("=", 1)[1].strip().strip('"\'')
+                    if enabled and u:
+                        proxy_env = u
+            except Exception:
+                pass
+
+    if not proxy_env and os.path.exists("/var/envs/global_proxy.json"):
+        try:
+            with open("/var/envs/global_proxy.json") as f:
+                gp = json.load(f)
+                if gp.get("enabled") and gp.get("url"):
+                    proxy_env = gp.get("url")
+        except Exception:
+            pass
+
     print("\n==================================================")
     print("      Проверка сетевого IP и статуса прокси       ")
     print("  Сделано Антоном Ковалкиным все права защищены.  ")

@@ -1,95 +1,391 @@
-#!/usr/bin/env bash
-# Network Proxy Management Utility
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Утилита управления сетевыми прокси (локальными и глобальными) и каталогом рабочих прокси.
+Сделано Антоном Ковалкиным все права защищены.
+"""
+import sys
+import os
+import json
+import time
+import subprocess
+import urllib.request
+import urllib.parse
+
+GLOBAL_PROXY_FILE = "/var/envs/global_proxy.json"
+MANIFEST_FILE = "/var/envs/manifest.json"
+CATALOG_FILES = [
+    "/var/envs/proxies_catalog.json",
+    "/mnt/d/OpenCode-Station_Package/config/proxies_catalog.json"
+]
+
+HOME_DIR = os.environ.get("HOME", "/home/dev")
+LOCAL_CONFIG = os.path.join(HOME_DIR, ".proxy_config")
+CURLRC = os.path.join(HOME_DIR, ".curlrc")
+DEFAULT_NO_PROXY = "localhost,127.0.0.1,::1,local.home"
+
+# ANSI Colors
+CLR_GREEN = "\033[1;32m"
+CLR_CYAN = "\033[1;36m"
+CLR_YELLOW = "\033[1;33m"
+CLR_RED = "\033[1;31m"
+CLR_PURPLE = "\033[1;35m"
+CLR_GRAY = "\033[0;37m"
+CLR_RESET = "\033[0m"
+
+def get_global_proxy():
+    if os.path.exists(GLOBAL_PROXY_FILE):
+        try:
+            with open(GLOBAL_PROXY_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"enabled": False, "url": ""}
+
+def set_global_proxy(url, enabled=True, apply_all=True):
+    url = (url or "").strip()
+    if url and "://" not in url:
+        url = f"http://{url}"
+    cfg = {"enabled": bool(enabled), "url": url}
+    try:
+        os.makedirs(os.path.dirname(GLOBAL_PROXY_FILE), exist_ok=True)
+        with open(GLOBAL_PROXY_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
+    # Update manifest and all environments
+    if os.path.exists(MANIFEST_FILE):
+        try:
+            with open(MANIFEST_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            data["global_proxy"] = cfg
+            if apply_all:
+                for ename, einfo in data.get("environments", {}).items():
+                    einfo["proxy_url"] = url
+                    einfo["proxy_enabled"] = bool(enabled)
+                    h = einfo.get("home", "/home/dev")
+                    cf = os.path.join(h, ".proxy_config")
+                    try:
+                        state = "yes" if enabled else "no"
+                        with open(cf, "w", encoding="utf-8") as f:
+                            f.write(f'PROXY_ENABLED="{state}"\nPROXY_URL="{url}"\n')
+                    except Exception:
+                        pass
+            with open(MANIFEST_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
+
+    # Ensure current environment home is also updated
+    try:
+        set_local_proxy(url, enabled=enabled)
+    except Exception:
+        pass
+
+    # Profile script
+    prof_file = "/etc/profile.d/global_proxy.sh"
+    try:
+        if enabled and url:
+            with open(prof_file, "w", encoding="utf-8") as f:
+                f.write(f'''# Global proxy configuration
 # Сделано Антоном Ковалкиным все права защищены.
+export HTTP_PROXY="{url}"
+export HTTPS_PROXY="{url}"
+export http_proxy="{url}"
+export https_proxy="{url}"
+export ALL_PROXY="{url}"
+export all_proxy="{url}"
+export NO_PROXY="{DEFAULT_NO_PROXY}"
+export no_proxy="{DEFAULT_NO_PROXY}"
+''')
+        else:
+            if os.path.exists(prof_file):
+                os.remove(prof_file)
+    except Exception:
+        pass
+    return cfg
 
-CONFIG_FILE="$HOME/.proxy_config"
-CURLRC="$HOME/.curlrc"
-DEFAULT_NO_PROXY="localhost,127.0.0.1,::1,local.home"
+def get_local_proxy():
+    enabled = False
+    url = ""
+    if os.path.exists(LOCAL_CONFIG):
+        try:
+            with open(LOCAL_CONFIG, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("PROXY_ENABLED="):
+                        enabled = "yes" in line.lower()
+                    elif line.startswith("PROXY_URL="):
+                        url = line.split("=", 1)[1].strip().strip('"\'')
+        except Exception:
+            pass
+    return {"enabled": enabled, "url": url}
 
-ensure_config() {
-    if [ ! -f "$CONFIG_FILE" ]; then
-        cat << 'EOF' > "$CONFIG_FILE"
-PROXY_ENABLED="no"
-PROXY_URL=""
-EOF
-    fi
-    source "$CONFIG_FILE" 2>/dev/null || true
-}
+def set_local_proxy(url, enabled=True):
+    url = (url or "").strip()
+    if url and "://" not in url:
+        url = f"http://{url}"
+    state = "yes" if enabled else "no"
+    try:
+        with open(LOCAL_CONFIG, "w", encoding="utf-8") as f:
+            f.write(f'PROXY_ENABLED="{state}"\nPROXY_URL="{url}"\n')
+        if enabled and url:
+            with open(CURLRC, "w", encoding="utf-8") as f:
+                f.write(f'proxy = "{url}"\n')
+        else:
+            if os.path.exists(CURLRC):
+                os.remove(CURLRC)
+    except Exception as e:
+        print(f"{CLR_RED}[!] Ошибка записи конфигурации: {e}{CLR_RESET}")
 
-apply_proxy() {
-    local url="$1"
-    echo 'PROXY_ENABLED="yes"' > "$CONFIG_FILE"
-    echo "PROXY_URL=\"$url\"" >> "$CONFIG_FILE"
-    
-    echo "proxy = \"$url\"" > "$CURLRC"
-    export http_proxy="$url"
-    export https_proxy="$url"
-    export all_proxy="$url"
-    export HTTP_PROXY="$url"
-    export HTTPS_PROXY="$url"
-    export ALL_PROXY="$url"
-    export no_proxy="$DEFAULT_NO_PROXY"
-    export NO_PROXY="$DEFAULT_NO_PROXY"
-    
-    echo -e "\033[1;32m[✓] Прокси активирован:\033[0m $url"
-    echo -e "\033[0;37mИсключения (local loopback):\033[0m $DEFAULT_NO_PROXY"
-    /usr/local/bin/myip
-}
+def load_catalog():
+    for p in CATALOG_FILES:
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+    return []
 
-case "$1" in
-    on|ON)
-        ensure_config
-        if [ -z "$PROXY_URL" ]; then
-            echo "Адрес прокси не задан. Задайте прокси командой:"
-            echo "  proxy set <http://хост:порт или socks5://хост:порт>"
-            exit 1
-        fi
-        apply_proxy "$PROXY_URL"
-        ;;
-    off|OFF)
-        ensure_config
-        echo 'PROXY_ENABLED="no"' > "$CONFIG_FILE"
-        echo "PROXY_URL=\"$PROXY_URL\"" >> "$CONFIG_FILE"
-        rm -f "$CURLRC" 2>/dev/null || true
-        unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY no_proxy NO_PROXY
-        echo -e "\033[1;33m[✓] Прокси отключен.\033[0m Прямое интернет-подключение."
-        /usr/local/bin/myip
-        ;;
-    set|SET)
-        if [ -z "$2" ]; then
-            echo "Использование: proxy set <url>"
-            echo "Примеры:"
-            echo "  proxy set http://127.0.0.1:10808"
-            echo "  proxy set socks5://127.0.0.1:7890"
-            echo "  proxy set socks5://user:pass@host:port"
-            exit 1
-        fi
-        apply_proxy "$2"
-        ;;
-    status|STATUS|"")
-        ensure_config
-        echo "=================================================="
-        echo "           Статус прокси в консоли                "
-        echo "=================================================="
-        if [ "$PROXY_ENABLED" = "yes" ] || [ -n "$http_proxy" ]; then
-            echo "Статус:           АКТИВЕН"
-            echo "Адрес:            ${PROXY_URL:-$http_proxy}"
-            echo "Исключения:       $DEFAULT_NO_PROXY"
-        else
-            echo "Статус:           ОТКЛЮЧЕН (Прямое подключение)"
-        fi
-        echo "Сохраненный URL:  ${PROXY_URL:-не задан}"
-        echo "--------------------------------------------------"
-        echo "Команды:"
-        echo "  proxy set <url>   -> Установить адрес прокси"
-        echo "  proxy on          -> Включить прокси"
-        echo "  proxy off         -> Отключить прокси"
-        echo "  proxy status      -> Показать статус"
-        echo "  myip              -> Проверить текущий внешний IP"
-        echo "=================================================="
-        ;;
-    *)
-        echo "Использование: proxy {set <url> | on | off | status}"
-        exit 1
-        ;;
-esac
+def test_proxy(url, timeout=3.5):
+    url = (url or "").strip()
+    if url and "://" not in url:
+        url = f"http://{url}"
+    t0 = time.time()
+    try:
+        proxy_h = urllib.request.ProxyHandler({"http": url, "https": url})
+        opener = urllib.request.build_opener(proxy_h)
+        req = urllib.request.Request("http://ip-api.com/json/?fields=status,country,city,query,org", headers={"User-Agent": "curl/7.88.1"})
+        with opener.open(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode())
+            lat = int((time.time() - t0) * 1000)
+            if data.get("status") == "success":
+                return True, data.get("query"), data.get("country"), data.get("city"), lat
+    except Exception as e:
+        pass
+    return False, None, None, None, int((time.time() - t0) * 1000)
+
+def cmd_status():
+    local = get_local_proxy()
+    glob = get_global_proxy()
+
+    print("==============================================================================")
+    print("                     Статус прокси-серверов OpenCode Station                  ")
+    print("                [Сделано Антоном Ковалкиным все права защищены]               ")
+    print("==============================================================================")
+
+    # 1. Global
+    print(f"\n{CLR_PURPLE}[Глобальный режим (для всех чатов и новых сред)]{CLR_RESET}")
+    if glob.get("enabled") and glob.get("url"):
+        print(f"  Статус          : {CLR_GREEN}ВКЛЮЧЕН (Активен для всех сред){CLR_RESET}")
+        print(f"  URL прокси      : {CLR_CYAN}{glob['url']}{CLR_RESET}")
+    else:
+        print(f"  Статус          : {CLR_GRAY}ВЫКЛЮЧЕН (Прямое интернет-подключение){CLR_RESET}")
+        if glob.get("url"):
+            print(f"  Сохраненный URL : {glob['url']}")
+
+    # 2. Local
+    print(f"\n{CLR_CYAN}[Текущая среда: {os.environ.get('OPENCODE_ENV', 'текущий терминал')}]{CLR_RESET}")
+    if local.get("enabled") and local.get("url"):
+        print(f"  Статус среды    : {CLR_GREEN}ВКЛЮЧЕН (Индивидуальный){CLR_RESET}")
+        print(f"  URL прокси      : {CLR_CYAN}{local['url']}{CLR_RESET}")
+    elif glob.get("enabled") and glob.get("url"):
+        print(f"  Статус среды    : {CLR_GREEN}ВКЛЮЧЕН (Наследует глобальный прокси){CLR_RESET}")
+        print(f"  URL прокси      : {CLR_CYAN}{glob['url']}{CLR_RESET}")
+    else:
+        print(f"  Статус среды    : {CLR_GRAY}ВЫКЛЮЧЕН (Прямое интернет-подключение){CLR_RESET}")
+        if local.get("url"):
+            print(f"  Сохраненный URL : {local['url']}")
+
+    print("\n------------------------------------------------------------------------------")
+    print("Быстрые команды:")
+    print("  proxy list               -> Показать встроенный каталог рабочих прокси")
+    print("  proxy select <N>         -> Выбрать прокси #N для текущей среды")
+    print("  proxy select --global <N> -> Выбрать прокси #N глобально для всех чатов")
+    print("  proxy on / proxy off     -> Включить / Выключить прокси в этой среде")
+    print("  proxy global on / off    -> Включить / Выключить глобальный прокси")
+    print("  myip                     -> Проверить текущий внешний IP адрес")
+    print("==============================================================================")
+
+def cmd_list():
+    catalog = load_catalog()
+    if not catalog:
+        print(f"{CLR_YELLOW}[!] Каталог прокси пуст или не найден.{CLR_RESET}")
+        return
+
+    print("==================================================================================================")
+    print("                    Встроенный каталог проверенных рабочих прокси                                 ")
+    print("                           [Сделано Антоном Ковалкиным]                                           ")
+    print("==================================================================================================")
+    print(f"{'#':<4} {'Страна / Локация':<28} {'Тип':<6} {'Пинг':<10} {'URL Прокси':<36}")
+    print("--------------------------------------------------------------------------------------------------")
+
+    glob = get_global_proxy()
+    glob_url = glob.get("url", "") if glob.get("enabled") else ""
+    local = get_local_proxy()
+    loc_url = local.get("url", "") if local.get("enabled") else ""
+
+    for idx, item in enumerate(catalog, 1):
+        country = item.get("country", "Неизвестно")
+        city = item.get("city", "")
+        loc_str = f"{country} ({city})" if city else country
+        if len(loc_str) > 26: loc_str = loc_str[:25] + "…"
+        ptype = item.get("type", "HTTP")
+        lat = item.get("latency", 0)
+        purl = item.get("url", "")
+
+        lat_color = CLR_GREEN if lat < 1200 else (CLR_YELLOW if lat < 2500 else CLR_GRAY)
+
+        mark = ""
+        if purl == glob_url:
+            mark = f" {CLR_PURPLE}[GLOBAL]{CLR_RESET}"
+        elif purl == loc_url:
+            mark = f" {CLR_CYAN}[ENV]{CLR_RESET}"
+
+        print(f"{idx:<4} {loc_str:<28} {ptype:<6} {lat_color}{lat} ms{CLR_RESET:<5} {CLR_CYAN}{purl}{CLR_RESET}{mark}")
+
+    print("--------------------------------------------------------------------------------------------------")
+    print("Применение в один клик:")
+    print("  proxy select <номер>          -> Применить для текущей среды")
+    print("  proxy select --global <номер> -> Сделать глобальным для всех чатов")
+    print("  proxy test <номер или URL>    -> Протестировать отклик прямо сейчас")
+    print("==================================================================================================")
+
+def cmd_select(num_str, is_global=False):
+    catalog = load_catalog()
+    try:
+        idx = int(num_str) - 1
+        if idx < 0 or idx >= len(catalog):
+            print(f"{CLR_RED}[!] Неверный номер прокси. Используйте число от 1 до {len(catalog)}.{CLR_RESET}")
+            return
+    except ValueError:
+        print(f"{CLR_RED}[!] Укажите корректный номер прокси из 'proxy list'.{CLR_RESET}")
+        return
+
+    item = catalog[idx]
+    url = item.get("url", "")
+    country = item.get("country", "")
+
+    if is_global:
+        set_global_proxy(url, enabled=True, apply_all=True)
+        print(f"\n{CLR_GREEN}[✓] Глобальный прокси установлен для всех чатов и сред:{CLR_RESET}")
+        print(f"    URL:      {CLR_CYAN}{url}{CLR_RESET}")
+        print(f"    Локация:  {country}")
+        print(f"    Действие: Все существующие и новые среды теперь работают через этот прокси.\n")
+    else:
+        set_local_proxy(url, enabled=True)
+        print(f"\n{CLR_GREEN}[✓] Прокси установлен для текущей среды:{CLR_RESET}")
+        print(f"    URL:      {CLR_CYAN}{url}{CLR_RESET}")
+        print(f"    Локация:  {country}\n")
+
+    # Run myip check
+    subprocess.run(["/usr/local/bin/myip"])
+
+def cmd_test(target):
+    if target.isdigit():
+        catalog = load_catalog()
+        idx = int(target) - 1
+        if 0 <= idx < len(catalog):
+            target = catalog[idx].get("url", "")
+        else:
+            print(f"{CLR_RED}[!] Неверный номер прокси.{CLR_RESET}")
+            return
+
+    print(f"[*] Проверка доступности прокси: {target} ...")
+    ok, ip, country, city, lat = test_proxy(target)
+    if ok:
+        print(f"{CLR_GREEN}[✓] Прокси успешно отвечает!{CLR_RESET}")
+        print(f"    Внешний IP:  {CLR_CYAN}{ip}{CLR_RESET}")
+        print(f"    Локация:     {country} ({city})")
+        print(f"    Задержка:    {lat} ms")
+    else:
+        print(f"{CLR_RED}[✗] Прокси не отвечает или таймаут ({lat} ms).{CLR_RESET}")
+
+def main():
+    args = sys.argv[1:]
+    if not args or args[0] in ["status", "STATUS"]:
+        cmd_status()
+        return
+
+    cmd = args[0].lower()
+
+    if cmd == "list":
+        cmd_list()
+    elif cmd == "select":
+        if len(args) < 2:
+            print("Использование: proxy select [--global] <номер>")
+            return
+        if args[1] == "--global" and len(args) >= 3:
+            cmd_select(args[2], is_global=True)
+        elif len(args) >= 3 and args[2] == "--global":
+            cmd_select(args[1], is_global=True)
+        else:
+            cmd_select(args[1], is_global=False)
+    elif cmd == "test":
+        target = args[1] if len(args) > 1 else ""
+        if not target:
+            loc = get_local_proxy()
+            target = loc.get("url") or get_global_proxy().get("url")
+            if not target:
+                print("Укажите номер или URL: proxy test <номер или http://...>")
+                return
+        cmd_test(target)
+    elif cmd == "global":
+        sub = args[1].lower() if len(args) > 1 else "status"
+        if sub in ["status", ""]:
+            g = get_global_proxy()
+            print(f"Глобальный прокси: {'ВКЛЮЧЕН' if g.get('enabled') else 'ВЫКЛЮЧЕН'}")
+            print(f"URL: {g.get('url', 'не задан')}")
+        elif sub == "on":
+            g = get_global_proxy()
+            if not g.get("url"):
+                print("URL глобального прокси не задан. Задайте: proxy global set <url>")
+                return
+            set_global_proxy(g["url"], enabled=True, apply_all=True)
+            print(f"{CLR_GREEN}[✓] Глобальный прокси активирован для всех сред!{CLR_RESET}")
+            subprocess.run(["/usr/local/bin/myip"])
+        elif sub == "off":
+            g = get_global_proxy()
+            set_global_proxy(g.get("url", ""), enabled=False, apply_all=True)
+            print(f"{CLR_YELLOW}[✓] Глобальный прокси отключен для всех сред.{CLR_RESET}")
+            subprocess.run(["/usr/local/bin/myip"])
+        elif sub == "set":
+            if len(args) < 3:
+                print("Использование: proxy global set <url>")
+                return
+            set_global_proxy(args[2], enabled=True, apply_all=True)
+            print(f"{CLR_GREEN}[✓] Глобальный прокси установлен и активирован для всех чатов: {args[2]}{CLR_RESET}")
+            subprocess.run(["/usr/local/bin/myip"])
+        elif sub == "select":
+            if len(args) < 3:
+                print("Использование: proxy global select <номер>")
+                return
+            cmd_select(args[2], is_global=True)
+        else:
+            print("Использование: proxy global {set <url> | on | off | status | select <N>}")
+    elif cmd == "set":
+        if len(args) < 2:
+            print("Использование: proxy set <url>")
+            return
+        set_local_proxy(args[1], enabled=True)
+        print(f"{CLR_GREEN}[✓] Прокси активирован для текущей среды: {args[1]}{CLR_RESET}")
+        subprocess.run(["/usr/local/bin/myip"])
+    elif cmd == "on":
+        loc = get_local_proxy()
+        if not loc.get("url"):
+            print("Адрес прокси не задан. Задайте: proxy set <url> или выберите: proxy list")
+            return
+        set_local_proxy(loc["url"], enabled=True)
+        print(f"{CLR_GREEN}[✓] Прокси включен: {loc['url']}{CLR_RESET}")
+        subprocess.run(["/usr/local/bin/myip"])
+    elif cmd == "off":
+        loc = get_local_proxy()
+        set_local_proxy(loc.get("url", ""), enabled=False)
+        print(f"{CLR_YELLOW}[✓] Прокси отключен для текущей среды.{CLR_RESET}")
+        subprocess.run(["/usr/local/bin/myip"])
+    else:
+        print("Использование: proxy {list | select <N> | status | set <url> | on | off | global | test}")
+
+if __name__ == "__main__":
+    main()

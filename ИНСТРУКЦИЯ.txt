@@ -26,7 +26,7 @@
        сброс кэша и регенерация паспорта устройства (Machine ID) в 1 клик.
      * «Файловый проводник»: изолированная рабочая Ext4-папка Linux,
        множественный выбор файлов (чекбоксы), удобный экспорт выбранных файлов 
-       на Windows (D:\OpenCodeProjects), скачивание ZIP-архивом,
+       на Windows (D:\OpenCode-Station_Package\workspace), скачивание ZIP-архивом,
        Drag & Drop файлов прямо из Windows Explorer в Linux.
      * «Терминал CMD»: веб-терминал с поддержкой Ctrl+V, кнопками быстрого
        запуска opencode, dir, cls, myip, export и чистым выходом без артефактов.
@@ -56,7 +56,7 @@
 - proxy set <url>          -> Подключить прокси (HTTP / SOCKS5)
 - proxy on / proxy off     -> Включение / выключение прокси
 - myip                     -> Проверить внешний IP-адрес и геолокацию
-- export all / select      -> Экспорт файлов на диск Windows (D:\OpenCodeProjects)
+- export all / select      -> Экспорт файлов на диск Windows (D:\OpenCode-Station_Package\workspace)
 - help                     -> Список всех доступных команд
 
 Вставка текста из буфера обмена: по сочетанию Ctrl + V.

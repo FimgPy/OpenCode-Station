@@ -127,6 +127,11 @@
           <i class="fa-solid fa-square-terminal text-emerald-400"></i>
           <span>Терминал CMD</span>
         </button>
+        <button onclick="switchTab('provider')" id="nav-provider" class="tab-btn px-4 py-2 rounded-lg flex items-center gap-2 transition text-gray-300 hover:text-white hover:bg-dark-750">
+          <i class="fa-solid fa-microchip text-amber-400"></i>
+          <span>AI Провайдер</span>
+          <span id="badge-provider-dot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+        </button>
         <button onclick="switchTab('proxy')" id="nav-proxy" class="tab-btn px-4 py-2 rounded-lg flex items-center gap-2 transition text-gray-300 hover:text-white hover:bg-dark-750">
           <i class="fa-solid fa-shield-halved text-purple-400"></i>
           <span>Прокси и Сеть</span>
@@ -246,9 +251,9 @@
             <span>Linux Workspace (default)</span>
           </button>
 
-          <button onclick="navigateFiles('/mnt/d/OpenCodeProjects')" class="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-cyan-300 border border-gray-700 text-xs font-mono flex items-center gap-1.5">
+          <button onclick="navigateFiles('/mnt/d/OpenCode-Station_Package/workspace')" class="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-cyan-300 border border-gray-700 text-xs font-mono flex items-center gap-1.5">
             <i class="fa-brands fa-windows text-blue-400"></i>
-            <span>D:\OpenCodeProjects (Windows)</span>
+            <span>D:\OpenCode-Station_Package\workspace (Windows)</span>
           </button>
 
           <button onclick="navigateFiles('/var/envs')" class="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-gray-300 border border-gray-700 text-xs font-mono flex items-center gap-1.5">
@@ -284,7 +289,7 @@
         <!-- Global Explorer Actions -->
         <div class="flex flex-wrap items-center gap-2">
           <!-- Export All to Windows -->
-          <button onclick="exportCurrentFolderToWindows()" class="px-3.5 py-2 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-medium flex items-center gap-1.5 shadow transition" title="Скопировать все файлы текущей папки в D:\OpenCodeProjects">
+          <button onclick="exportCurrentFolderToWindows()" class="px-3.5 py-2 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-medium flex items-center gap-1.5 shadow transition" title="Скопировать все файлы текущей папки в D:\OpenCode-Station_Package\workspace">
             <i class="fa-solid fa-share-from-square"></i>
             <span>Экспорт в Windows (D:)</span>
           </button>
@@ -411,7 +416,7 @@
             <span>Перезапустить CMD</span>
           </button>
           
-          <button onclick="runInTerminal('export all\r')" class="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-750 border border-gray-700 text-teal-300 text-xs font-mono flex items-center gap-1.5 transition" title="Экспортировать все файлы в D:\OpenCodeProjects">
+          <button onclick="runInTerminal('export all\r')" class="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-750 border border-gray-700 text-teal-300 text-xs font-mono flex items-center gap-1.5 transition" title="Экспортировать все файлы в D:\OpenCode-Station_Package\workspace">
             <i class="fa-solid fa-share-from-square"></i>
             <span>export all</span>
           </button>
@@ -481,6 +486,53 @@
             <i class="fa-solid fa-rotate"></i>
             <span>Проверить IP</span>
           </button>
+        </div>
+      </div>
+
+      <!-- GLOBAL PROXY CARD (FOR ALL CHATS & ENVS) -->
+      <div class="glass-card rounded-2xl p-6 border border-purple-850/70 bg-gradient-to-r from-dark-850 via-dark-800 to-purple-950/20 shadow-xl space-y-4">
+        <div class="flex items-center justify-between flex-wrap gap-4">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-purple-900/40 border border-purple-700/60 flex items-center justify-center text-purple-400 text-lg shadow">
+              <i class="fa-solid fa-earth-americas"></i>
+            </div>
+            <div>
+              <div class="text-base font-bold text-white flex items-center gap-2">
+                <span>Глобальный прокси для всех чатов и сессий</span>
+                <span id="badge-global-proxy" class="text-xs px-2.5 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700 font-mono">ВЫКЛЮЧЕН</span>
+              </div>
+              <p class="text-xs text-gray-400 mt-0.5">Единая точка выхода: все чаты, сессии и новые анонимные среды автоматически подключаются через этот прокси</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" id="global-proxy-toggle" onchange="toggleGlobalProxySwitch(this.checked)" class="sr-only peer">
+              <div class="w-12 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+            </label>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+          <div class="md:col-span-2">
+            <input type="text" id="global-proxy-url-input" placeholder="http://хост:порт или socks5://хост:порт" class="w-full bg-dark-900 border border-purple-800/60 rounded-xl px-3.5 py-2.5 font-mono text-sm text-purple-300 focus:outline-none focus:border-purple-400 shadow-inner">
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="saveGlobalProxySettings()" class="flex-1 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-medium text-xs flex items-center justify-center gap-1.5 transition shadow">
+              <i class="fa-solid fa-floppy-disk"></i>
+              <span>Применить глобально</span>
+            </button>
+            <button onclick="disableGlobalProxy()" class="px-3 py-2.5 rounded-xl bg-dark-800 hover:bg-dark-750 border border-gray-700 text-gray-300 text-xs transition">
+              <span>Отключить</span>
+            </button>
+          </div>
+        </div>
+
+        <div id="global-proxy-banner" class="p-3 bg-dark-900/90 rounded-xl border border-gray-800 text-xs text-gray-400 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <i class="fa-solid fa-circle-info text-purple-400"></i>
+            <span id="global-proxy-desc">Глобальный прокси выключен (каждая среда настраивается автономно).</span>
+          </div>
+          <span class="text-[11px] font-mono text-purple-300/80">Опция: «Задать глобальный прокси для всех чатов»</span>
         </div>
       </div>
 
@@ -554,6 +606,10 @@
               </label>
             </div>
 
+            <div class="flex items-center gap-2 px-1">
+              <input type="checkbox" id="proxy-also-global-checkbox" class="rounded bg-dark-900 border-gray-700 text-purple-600 focus:ring-0">
+              <label for="proxy-also-global-checkbox" class="text-xs text-gray-300 cursor-pointer">Сделать также глобальным для всех чатов и сессий</label>
+            </div>
             <div class="flex items-center gap-2 pt-1">
               <button onclick="saveSelectedEnvProxy()" class="flex-1 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-medium text-sm flex items-center justify-center gap-2 transition shadow">
                 <i class="fa-solid fa-floppy-disk"></i>
@@ -571,6 +627,48 @@
           </div>
         </div>
 
+      </div>
+
+      <!-- BUILT-IN WORKING PROXIES CATALOG -->
+      <div class="glass-card rounded-2xl p-6 border border-emerald-900/60 bg-dark-850/90 shadow-xl space-y-4">
+        <div class="flex items-center justify-between flex-wrap gap-3">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-emerald-950/80 border border-emerald-700/60 flex items-center justify-center text-emerald-400 text-lg shadow">
+              <i class="fa-solid fa-list-check"></i>
+            </div>
+            <div>
+              <div class="text-base font-bold text-white flex items-center gap-2">
+                <span>Встроенный каталог проверенных рабочих прокси</span>
+                <span class="text-xs px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800 font-mono">50 ЕВРОПЕЙСКИХ</span>
+              </div>
+              <p class="text-xs text-gray-400 mt-0.5">50 быстрых европейских HTTPS-прокси (Германия, Нидерланды, Великобритания, Польша, Австрия и др.) с защитой от сброса соединений (ECONNRESET).</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="refreshProxiesCatalog()" id="btn-refresh-catalog" class="py-2 px-3.5 rounded-xl bg-dark-800 hover:bg-dark-750 border border-emerald-800/80 text-emerald-300 text-xs font-medium flex items-center gap-1.5 transition shadow">
+              <i class="fa-solid fa-rotate" id="icon-refresh-catalog"></i>
+              <span>Проверить пинг всех</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto rounded-xl border border-gray-800 max-h-[380px] overflow-y-auto">
+          <table class="w-full text-left text-xs font-mono">
+            <thead class="bg-dark-900 text-gray-400 border-b border-gray-800 uppercase tracking-wider text-[11px] sticky top-0 bg-dark-900 z-10">
+              <tr>
+                <th class="py-2.5 px-3">#</th>
+                <th class="py-2.5 px-3">Страна / Локация</th>
+                <th class="py-2.5 px-3">Тип</th>
+                <th class="py-2.5 px-3">Пинг</th>
+                <th class="py-2.5 px-3">URL Прокси</th>
+                <th class="py-2.5 px-3 text-right">Действия</th>
+              </tr>
+            </thead>
+            <tbody id="proxies-catalog-tbody" class="divide-y divide-gray-800/60">
+              <!-- Populated dynamically -->
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <!-- Bottom Card: All Environments Proxy Summary Table -->
@@ -598,6 +696,141 @@
             </tbody>
           </table>
         </div>
+      </div>
+
+    </section>
+
+  
+    <!-- ================= TAB 5: AI PROVIDER & NO LIMITS ================= -->
+    <section id="tab-provider" class="tab-content hidden space-y-6">
+      
+      <!-- Top Banner -->
+      <div class="bg-gradient-to-r from-amber-950/40 via-dark-850 to-cyan-950/40 border border-amber-900/40 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div>
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 text-lg">
+              <i class="fa-solid fa-bolt"></i>
+            </div>
+            <div>
+              <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                AI Провайдер и Безлимитный Доступ
+                <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800 font-normal">Без ограничений</span>
+              </h2>
+              <p class="text-xs text-gray-400 mt-0.5">
+                Прямая маршрутизация запросов к нейросетям в обход лимитов OpenCode. Сделано Антоном Ковалкиным все права защищены.
+              </p>
+            </div>
+          </div>
+        </div>
+        <div class="flex items-center gap-3">
+          <button onclick="loadProviderConfig()" class="px-4 py-2 rounded-xl bg-dark-800 hover:bg-dark-750 border border-gray-750 text-gray-300 text-xs font-semibold flex items-center gap-2 transition shadow">
+            <i class="fa-solid fa-rotate"></i>
+            <span>Обновить статус</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Main Config Grid -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <!-- Form Column -->
+        <div class="lg:col-span-7 bg-dark-850 border border-gray-800 rounded-2xl p-6 space-y-5 shadow-xl">
+          <h3 class="text-base font-bold text-white flex items-center gap-2 border-b border-gray-800 pb-3">
+            <i class="fa-solid fa-sliders text-cyan-400"></i>
+            <span>Параметры подключения модели</span>
+          </h3>
+
+          <!-- Provider Select -->
+          <div class="space-y-2">
+            <label class="text-xs font-semibold text-gray-300 flex items-center justify-between">
+              <span>Провайдер ИИ:</span>
+              <span id="provider-badge-tag" class="text-[10px] text-amber-400 font-mono"></span>
+            </label>
+            <select id="provider-select" onchange="onProviderChange()" class="w-full bg-dark-900 border border-gray-750 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition font-medium">
+              <option value="google">Google Gemini (Рекомендуется — Бесплатно 1,500 зап/день)</option>
+              <option value="groq">Groq Cloud (Сверхбыстрый ИИ Llama 3.3 70B — Бесплатно)</option>
+              <option value="openrouter">OpenRouter (Все бесплатные модели :free)</option>
+              <option value="deepseek">DeepSeek Direct API</option>
+              <option value="opencode">OpenCode Public Pool (Стандарт)</option>
+            </select>
+          </div>
+
+          <!-- Model Select -->
+          <div class="space-y-2">
+            <label class="text-xs font-semibold text-gray-300 flex items-center justify-between">
+              <span>Модель:</span>
+              <span class="text-[10px] text-gray-500">Автоконфигурация в opencode.json</span>
+            </label>
+            <select id="provider-model-select" class="w-full bg-dark-900 border border-gray-750 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500 transition font-mono text-xs">
+            </select>
+          </div>
+
+          <!-- API Key Input -->
+          <div class="space-y-2" id="provider-key-group">
+            <label class="text-xs font-semibold text-gray-300 flex items-center justify-between">
+              <span>API Ключ:</span>
+              <a id="provider-key-link" href="#" target="_blank" class="text-[11px] text-cyan-400 hover:text-cyan-300 hover:underline flex items-center gap-1">
+                <span>Получить бесплатный ключ</span>
+                <i class="fa-solid fa-arrow-up-right-from-square text-[9px]"></i>
+              </a>
+            </label>
+            <div class="relative">
+              <input type="password" id="provider-api-key" placeholder="Вставьте ваш API ключ..." class="w-full bg-dark-900 border border-gray-750 rounded-xl pl-4 pr-11 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition font-mono">
+              <button type="button" onclick="toggleApiKeyVisibility()" class="absolute right-3 top-2.5 text-gray-400 hover:text-white transition">
+                <i id="provider-key-eye" class="fa-solid fa-eye text-sm"></i>
+              </button>
+            </div>
+            <p id="provider-key-help" class="text-[11px] text-gray-500"></p>
+          </div>
+
+          <!-- Apply to all environments checkbox -->
+          <div class="pt-2">
+            <label class="flex items-center gap-3 cursor-pointer select-none">
+              <input type="checkbox" id="provider-apply-all" checked class="w-4 h-4 rounded bg-dark-900 border-gray-700 text-amber-500 focus:ring-0">
+              <span class="text-xs text-gray-300">Применить конфигурацию ко всем изолированным средам станции</span>
+            </label>
+          </div>
+
+          <!-- Actions -->
+          <div class="flex items-center gap-3 pt-4 border-t border-gray-800">
+            <button onclick="saveProviderConfig()" class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-gray-950 font-bold text-xs flex items-center gap-2 shadow-lg transition">
+              <i class="fa-solid fa-floppy-disk"></i>
+              <span>Сохранить и активировать</span>
+            </button>
+            <button onclick="testProviderConnection()" id="btn-provider-test" class="px-4 py-2.5 rounded-xl bg-dark-800 hover:bg-dark-750 border border-gray-750 text-gray-200 text-xs font-semibold flex items-center gap-2 transition">
+              <i class="fa-solid fa-plug"></i>
+              <span>Проверить API</span>
+            </button>
+          </div>
+
+          <!-- Test result box -->
+          <div id="provider-test-result" class="hidden p-3 rounded-xl border text-xs"></div>
+        </div>
+
+        <!-- Info / Guides Column -->
+        <div class="lg:col-span-5 space-y-4">
+          <div class="bg-dark-850 border border-gray-800 rounded-2xl p-6 shadow-xl space-y-4">
+            <h4 class="text-sm font-bold text-white flex items-center gap-2">
+              <i class="fa-solid fa-circle-question text-amber-400"></i>
+              <span>Как гарантированно убрать лимиты?</span>
+            </h4>
+            <div class="space-y-3 text-xs text-gray-300 leading-relaxed">
+              <div class="p-3 rounded-xl bg-dark-900 border border-gray-800 space-y-1">
+                <span class="font-bold text-emerald-400">1. Google Gemini (Бесплатно)</span>
+                <p class="text-gray-400">Перейдите на <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-cyan-400 underline">aistudio.google.com</a>, нажмите "Create API Key" и вставьте его сюда. Лимит: 1 500 запросов в день бесплатно, без привязки кредитной карты.</p>
+              </div>
+              <div class="p-3 rounded-xl bg-dark-900 border border-gray-800 space-y-1">
+                <span class="font-bold text-cyan-400">2. Groq Cloud (Сверхбыстро)</span>
+                <p class="text-gray-400">Перейдите на <a href="https://console.groq.com/keys" target="_blank" class="text-cyan-400 underline">console.groq.com</a> и получите ключ. Предоставляет 14 400 запросов в сутки бесплатно для мощнейшей модели Llama 3.3 70B.</p>
+              </div>
+              <div class="p-3 rounded-xl bg-dark-900 border border-gray-800 space-y-1">
+                <span class="font-bold text-purple-400">3. OpenCode Free Pool</span>
+                <p class="text-gray-400">Стандартный пул OpenCode. Бинарный патч подавляет любые модальные окна «Free limit reached», а сброс квот происходит автоматически в 03:00 МСК.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
 
     </section>
@@ -754,6 +987,8 @@
         loadFiles(currentPath);
       } else if (tabId === 'proxy') {
         checkIpStatus();
+      } else if (tabId === 'provider') {
+        loadProviderConfig();
       }
     }
 
@@ -776,6 +1011,8 @@
         renderEnvs(currentEnvs, activeEnv);
         updateQuickEnvButtons(currentEnvs);
         updateProxyEnvSelector();
+        loadGlobalProxy();
+        loadProxiesCatalog();
 
         if (selectedProxyEnv && currentEnvs[selectedProxyEnv]) {
           onProxyEnvSelected(selectedProxyEnv);
@@ -1010,22 +1247,20 @@
         const frame = document.getElementById('terminal-frame');
         if (frame && frame.contentWindow) {
           frame.contentWindow.postMessage({ type: 'RESET_TERMINAL' }, '*');
+          frame.contentWindow.postMessage({ type: 'SEND_INPUT', data: '\x03\x15' }, '*');
         }
       } catch (e) {}
 
       switchTab('terminal');
       const sel = document.getElementById('terminal-env-select');
       if (sel) sel.value = envName;
-      showToast(`Создание НОВОЙ сессии OpenCode в среде [${envName}]...`, "info");
-      
-      // Generate guaranteed unique session ID so OpenCode opens an empty clean chat
-      const newId = 'ses_' + Array.from(crypto.getRandomValues(new Uint8Array(10))).map(b => b.toString(16).padStart(2, '0')).join('');
+      showToast(`Среда [${envName}] активирована. Запуск OpenCode...`, "info");
 
       setTimeout(() => {
-        runInTerminal(`env switch ${envName}\r`);
+        runInTerminal(`switch ${envName}\r`);
         setTimeout(() => {
-          runInTerminal(`opencode -s ${newId}\r`);
-        }, 500);
+          runInTerminal(`opencode\r`);
+        }, 800);
       }, 400);
     }
 
@@ -1116,7 +1351,7 @@
     // Delete Environment
     async function deleteEnv(name) {
       if (!confirm(`Вы действительно хотите удалить среду [${name}] из реестра?\n\nНажмите ОК для продолжения.`)) return;
-      const deleteDiskFolder = confirm(`Также удалить папку проекта этой среды на диске D (D:\\OpenCodeProjects\\${name})?\n\n[OK] = Удалить среду И папку проекта на диске D\n[Отмена] = Удалить только среду, но сохранить файлы проекта`);
+      const deleteDiskFolder = confirm(`Также удалить папку проекта этой среды на диске D (D:\\OpenCode-Station_Package\\workspace\\${name})?\n\n[OK] = Удалить среду И папку проекта на диске D\n[Отмена] = Удалить только среду, но сохранить файлы проекта`);
       try {
         const res = await fetch(`${API_BASE}/api/envs/delete`, {
           method: 'POST',
@@ -1348,7 +1583,7 @@
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
             paths: paths,
-            dest_win: "D:\\OpenCodeProjects"
+            dest_win: "D:\\OpenCode-Station_Package\\workspace"
           })
         });
         const data = await res.json();
@@ -1372,7 +1607,7 @@
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
             paths: [path],
-            dest_win: "D:\\OpenCodeProjects"
+            dest_win: "D:\\OpenCode-Station_Package\\workspace"
           })
         });
         const data = await res.json();
@@ -1395,7 +1630,7 @@
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
             src_dir: currentPath,
-            dest_win: "D:\\OpenCodeProjects"
+            dest_win: "D:\\OpenCode-Station_Package\\workspace"
           })
         });
         const data = await res.json();
@@ -1682,8 +1917,6 @@
       if (frame && frame.contentWindow) {
         try {
           frame.contentWindow.postMessage({ type: 'SEND_INPUT', text: formatted, data: formatted }, '*');
-          frame.contentWindow.postMessage({ type: 'input', text: formatted, data: formatted }, '*');
-          frame.contentWindow.postMessage({ type: 'RUN_COMMAND', text: formatted, data: formatted }, '*');
         } catch (e) {
           console.error('[Terminal Frame Error]', e);
         }
@@ -1835,7 +2068,12 @@
         const res = await fetch(`${API_BASE}/api/proxy/set`, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ env: envName, url: url, enable: toggle })
+          body: JSON.stringify({
+            env: envName,
+            url: url,
+            enable: toggle,
+            make_global: document.getElementById('proxy-also-global-checkbox') ? document.getElementById('proxy-also-global-checkbox').checked : false
+          })
         });
         const data = await res.json();
         if (data.success) {
@@ -1946,10 +2184,451 @@
       });
     }
 
+    
+    // ================= AI PROVIDER LOGIC =================
+    const PROVIDER_MODELS = {
+      google: [
+        { id: "google/gemini-2.0-flash", name: "Gemini 2.0 Flash (Свежайшая и быстрая)" },
+        { id: "google/gemini-1.5-flash", name: "Gemini 1.5 Flash (Стабильная бесплатная)" },
+        { id: "google/gemini-1.5-pro", name: "Gemini 1.5 Pro (Глубокое рассуждение)" }
+      ],
+      groq: [
+        { id: "groq/llama-3.3-70b-versatile", name: "Llama 3.3 70B Versatile (Рекомендуется)" },
+        { id: "groq/deepseek-r1-distill-llama-70b", name: "DeepSeek R1 Distill Llama 70B (Рассуждения)" },
+        { id: "groq/llama-3.1-8b-instant", name: "Llama 3.1 8B Instant (Мгновенные ответы)" }
+      ],
+      openrouter: [
+        { id: "openrouter/google/gemini-2.0-flash-exp:free", name: "Gemini 2.0 Flash Exp (:free)" },
+        { id: "openrouter/meta-llama/llama-3.3-70b-instruct:free", name: "Llama 3.3 70B Instruct (:free)" },
+        { id: "openrouter/deepseek/deepseek-r1:free", name: "DeepSeek R1 Free (:free)" }
+      ],
+      deepseek: [
+        { id: "deepseek/deepseek-chat", name: "DeepSeek-V3 Chat" },
+        { id: "deepseek/deepseek-reasoner", name: "DeepSeek-R1 Reasoner" }
+      ],
+      opencode: [
+        { id: "opencode/deepseek-v4.1-flash-free", name: "DeepSeek V4.1 Flash Free (Рекомендуется)" },
+        { id: "opencode/flint-40b-free", name: "Flint 40B Free" },
+        { id: "opencode/beam-free", name: "Beam Free" },
+        { id: "opencode/glm-5.3-flash-free", name: "GLM 5.3 Flash Free" },
+        { id: "opencode/nemotron-3.5-lightning-free", name: "Nemotron 3.5 Lightning Free" },
+        { id: "opencode/mimo-v2.6-flash-free", name: "Mimo 2.6 Flash Free" }
+      ]
+    };
+
+    const PROVIDER_LINKS = {
+      google: { url: "https://aistudio.google.com/app/apikey", text: "Получить бесплатный ключ в Google AI Studio", help: "1 500 запросов в день бесплатно, без кредитной карты" },
+      groq: { url: "https://console.groq.com/keys", text: "Получить бесплатный ключ Groq Cloud", help: "Сверхбыстрый API, 14 400 запросов в сутки бесплатно" },
+      openrouter: { url: "https://openrouter.ai/settings/keys", text: "Получить ключ OpenRouter", help: "Доступны бесплатные модели с суффиксом :free" },
+      deepseek: { url: "https://platform.deepseek.com/api_keys", text: "Получить ключ DeepSeek Platform", help: "Официальный прямой API от DeepSeek" },
+      opencode: { url: "https://opencode.ai", text: "Публичный пул OpenCode", help: "Ключ не требуется, прямое подключение" }
+    };
+
+    async function loadProviderConfig() {
+      try {
+        const res = await fetch(`${API_BASE}/api/provider`);
+        if (!res.ok) return;
+        const cfg = await res.json();
+        
+        const provSelect = document.getElementById('provider-select');
+        if (provSelect) provSelect.value = cfg.provider || 'opencode';
+        
+        onProviderChange(cfg.model);
+        
+        const keyInput = document.getElementById('provider-api-key');
+        if (keyInput) keyInput.value = cfg.apiKey || '';
+        
+        const tag = document.getElementById('provider-badge-tag');
+        if (tag) tag.textContent = `Текущий: ${cfg.provider || 'opencode'}`;
+      } catch (e) {
+        console.error("loadProviderConfig error:", e);
+      }
+    }
+
+    function onProviderChange(selectedModel) {
+      const prov = document.getElementById('provider-select')?.value || 'opencode';
+      const modelSelect = document.getElementById('provider-model-select');
+      const keyGroup = document.getElementById('provider-key-group');
+      const keyLink = document.getElementById('provider-key-link');
+      const keyHelp = document.getElementById('provider-key-help');
+
+      if (modelSelect) {
+        modelSelect.innerHTML = '';
+        const list = PROVIDER_MODELS[prov] || [];
+        list.forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = m.id;
+          opt.textContent = m.name;
+          if (selectedModel && m.id === selectedModel) opt.selected = true;
+          modelSelect.appendChild(opt);
+        });
+      }
+
+      const info = PROVIDER_LINKS[prov];
+      if (info && keyLink) {
+        keyLink.href = info.url;
+        keyLink.querySelector('span').textContent = info.text;
+      }
+      if (info && keyHelp) {
+        keyHelp.textContent = info.help;
+      }
+
+      if (prov === 'opencode') {
+        if (keyGroup) keyGroup.classList.add('opacity-50');
+      } else {
+        if (keyGroup) keyGroup.classList.remove('opacity-50');
+      }
+    }
+
+    function toggleApiKeyVisibility() {
+      const inp = document.getElementById('provider-api-key');
+      const eye = document.getElementById('provider-key-eye');
+      if (!inp || !eye) return;
+      if (inp.type === 'password') {
+        inp.type = 'text';
+        eye.className = 'fa-solid fa-eye-slash text-sm';
+      } else {
+        inp.type = 'password';
+        eye.className = 'fa-solid fa-eye text-sm';
+      }
+    }
+
+    async function testProviderConnection() {
+      const btn = document.getElementById('btn-provider-test');
+      const resultBox = document.getElementById('provider-test-result');
+      const provider = document.getElementById('provider-select')?.value || 'opencode';
+      const model = document.getElementById('provider-model-select')?.value || '';
+      const apiKey = document.getElementById('provider-api-key')?.value.trim() || '';
+
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i><span>Проверка...</span>';
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/provider/test`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider, model, apiKey })
+        });
+        const data = await res.json();
+        if (resultBox) {
+          resultBox.classList.remove('hidden');
+          if (data.success) {
+            resultBox.className = 'p-3 rounded-xl border border-emerald-800 bg-emerald-950/60 text-emerald-300 text-xs flex items-center gap-2';
+            resultBox.innerHTML = `<i class="fa-solid fa-circle-check text-emerald-400 text-base"></i><span>${data.message || 'Подключение успешно!'}</span>`;
+          } else {
+            resultBox.className = 'p-3 rounded-xl border border-rose-800 bg-rose-950/60 text-rose-300 text-xs flex items-center gap-2';
+            resultBox.innerHTML = `<i class="fa-solid fa-circle-xmark text-rose-400 text-base"></i><span>${data.message || 'Ошибка подключения!'}</span>`;
+          }
+        }
+      } catch (e) {
+        if (resultBox) {
+          resultBox.classList.remove('hidden');
+          resultBox.className = 'p-3 rounded-xl border border-rose-800 bg-rose-950/60 text-rose-300 text-xs';
+          resultBox.textContent = `Ошибка сети: ${e.message}`;
+        }
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fa-solid fa-plug"></i><span>Проверить API</span>';
+        }
+      }
+    }
+
+    async function saveProviderConfig() {
+      const provider = document.getElementById('provider-select')?.value || 'opencode';
+      const model = document.getElementById('provider-model-select')?.value || '';
+      const apiKey = document.getElementById('provider-api-key')?.value.trim() || '';
+      const apply_all = document.getElementById('provider-apply-all')?.checked ?? true;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/provider/save`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider, model, apiKey, apply_all })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast("AI Провайдер успешно сохранен и применен ко всем средам!", "success");
+          loadProviderConfig();
+        } else {
+          showToast(data.message || "Ошибка сохранения", "error");
+        }
+      } catch (e) {
+        showToast(`Ошибка сохранения: ${e.message}`, "error");
+      }
+    }
+
     // Auto-init on load
     window.addEventListener('DOMContentLoaded', () => {
       refreshAll();
     });
-  </script>
+  
+    // =========================================================================
+    // GLOBAL PROXY & PROXIES CATALOG LOGIC
+    // Сделано Антоном Ковалкиным все права защищены.
+    // =========================================================================
+    let globalProxyState = { enabled: false, url: "" };
+    let cachedProxiesCatalog = [];
+
+    async function loadGlobalProxy() {
+      try {
+        const res = await fetch(`${API_BASE}/api/proxy/global`);
+        const data = await res.json();
+        if (data.global_proxy) {
+          globalProxyState = data.global_proxy;
+          updateGlobalProxyUI(globalProxyState);
+        }
+      } catch (err) {
+        console.error("Error loading global proxy:", err);
+      }
+    }
+
+    function updateGlobalProxyUI(cfg) {
+      const isEnabled = !!cfg.enabled && !!cfg.url;
+      const toggle = document.getElementById('global-proxy-toggle');
+      const input = document.getElementById('global-proxy-url-input');
+      const badge = document.getElementById('badge-global-proxy');
+      const desc = document.getElementById('global-proxy-desc');
+      const banner = document.getElementById('global-proxy-banner');
+
+      if (toggle) toggle.checked = isEnabled;
+      if (input && cfg.url && !input.value) input.value = cfg.url;
+
+      if (isEnabled) {
+        if (badge) {
+          badge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-purple-950 text-purple-300 border border-purple-800 font-mono';
+          badge.textContent = 'ГЛОБАЛЬНО ВКЛЮЧЕН';
+        }
+        if (desc) {
+          desc.innerHTML = `<span class="text-emerald-400 font-bold">Активен:</span> <span class="font-mono text-purple-300">${cfg.url}</span> (все чаты и новые сессии защищены)`;
+        }
+        if (banner) {
+          banner.className = 'p-3 bg-purple-950/30 rounded-xl border border-purple-900/60 text-xs text-purple-300 flex items-center justify-between';
+        }
+      } else {
+        if (badge) {
+          badge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700 font-mono';
+          badge.textContent = 'ВЫКЛЮЧЕН';
+        }
+        if (desc) {
+          desc.textContent = 'Глобальный прокси выключен (каждая среда настраивается автономно).';
+        }
+        if (banner) {
+          banner.className = 'p-3 bg-dark-900/90 rounded-xl border border-gray-800 text-xs text-gray-400 flex items-center justify-between';
+        }
+      }
+    }
+
+    async function saveGlobalProxySettings() {
+      const url = document.getElementById('global-proxy-url-input').value.trim();
+      const toggle = document.getElementById('global-proxy-toggle').checked;
+
+      if (!url && toggle) {
+        showToast("Укажите URL прокси для включения", "error");
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/proxy/global`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ url: url, enable: toggle, apply_all: true })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast("Глобальный прокси применен ко всем чатам и сессиям!", "success");
+          globalProxyState = data.global_proxy;
+          updateGlobalProxyUI(globalProxyState);
+          refreshAll();
+        } else {
+          showToast(`Ошибка: ${data.error}`, "error");
+        }
+      } catch (err) {
+        showToast("Ошибка сохранения глобального прокси", "error");
+      }
+    }
+
+    async function toggleGlobalProxySwitch(enabled) {
+      const url = document.getElementById('global-proxy-url-input').value.trim();
+      if (enabled && !url) {
+        showToast("Укажите URL глобального прокси перед включением", "error");
+        document.getElementById('global-proxy-toggle').checked = false;
+        return;
+      }
+      try {
+        const res = await fetch(`${API_BASE}/api/proxy/global`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ url: url, enable: enabled, apply_all: true })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Глобальный прокси ${enabled ? 'включен' : 'отключен'}`, "info");
+          globalProxyState = data.global_proxy;
+          updateGlobalProxyUI(globalProxyState);
+          refreshAll();
+        }
+      } catch (err) {
+        showToast("Ошибка переключения", "error");
+      }
+    }
+
+    function disableGlobalProxy() {
+      const toggle = document.getElementById('global-proxy-toggle');
+      if (toggle) toggle.checked = false;
+      toggleGlobalProxySwitch(false);
+    }
+
+    async function loadProxiesCatalog() {
+      try {
+        const res = await fetch(`${API_BASE}/api/proxies/catalog`);
+        const data = await res.json();
+        if (data.proxies) {
+          cachedProxiesCatalog = data.proxies;
+          renderProxiesCatalog(cachedProxiesCatalog);
+        }
+      } catch (err) {
+        console.error("Error loading proxies catalog:", err);
+      }
+    }
+
+    function renderProxiesCatalog(list) {
+      const tbody = document.getElementById('proxies-catalog-tbody');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+
+      if (!list || list.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="py-4 text-center text-gray-500">Каталог пуст</td></tr>';
+        return;
+      }
+
+      list.forEach((p, idx) => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-dark-800/60 transition';
+
+        const lat = p.latency || 0;
+        const latClass = lat < 1200 ? 'text-emerald-400 bg-emerald-950/70 border-emerald-800' : (lat < 2500 ? 'text-yellow-400 bg-yellow-950/70 border-yellow-800' : 'text-gray-400 bg-gray-900 border-gray-800');
+        const loc = p.city ? `${p.country} (${p.city})` : (p.country || 'Неизвестно');
+
+        const isGlobActive = globalProxyState.enabled && globalProxyState.url === p.url;
+        const isCurrentEnv = (currentEnvs[selectedProxyEnv] && currentEnvs[selectedProxyEnv].proxy_enabled && currentEnvs[selectedProxyEnv].proxy_url === p.url);
+
+        tr.innerHTML = `
+          <td class="py-2.5 px-3 text-gray-500 font-bold">${idx + 1}</td>
+          <td class="py-2.5 px-3 font-semibold text-white truncate max-w-[200px]" title="${loc}">
+            <span>${loc}</span>
+            ${isGlobActive ? '<span class="ml-1 text-[9px] px-1.5 py-0.2 rounded bg-purple-950 text-purple-300 border border-purple-800">GLOBAL</span>' : ''}
+            ${isCurrentEnv ? '<span class="ml-1 text-[9px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-800">ENV</span>' : ''}
+          </td>
+          <td class="py-2.5 px-3 text-gray-400 uppercase text-[11px]">${p.type || 'HTTP'}</td>
+          <td class="py-2.5 px-3">
+            <span class="px-2 py-0.5 rounded text-[10px] font-mono border ${latClass}">
+              ${lat} ms
+            </span>
+          </td>
+          <td class="py-2.5 px-3 text-cyan-300 font-mono text-xs select-all truncate max-w-[220px]" title="${p.url}">${p.url}</td>
+          <td class="py-2.5 px-3 text-right space-x-1.5">
+            <button onclick="applyCatalogProxyToCurrentEnv('${p.url}')" class="py-1 px-2.5 rounded-lg bg-dark-750 hover:bg-dark-700 text-cyan-300 border border-cyan-800/60 text-xs transition shadow" title="Выбрать для текущей среды">
+              <i class="fa-solid fa-check mr-1"></i>Для среды
+            </button>
+            <button onclick="applyCatalogProxyGlobally('${p.url}')" class="py-1 px-2.5 rounded-lg bg-purple-950 hover:bg-purple-900 text-purple-300 border border-purple-800 text-xs transition shadow" title="Сделать глобальным для всех чатов">
+              <i class="fa-solid fa-earth-americas mr-1"></i>Глобально
+            </button>
+            <button onclick="testCatalogProxy('${p.url}', this)" class="py-1 px-2 rounded-lg bg-dark-800 hover:bg-dark-700 text-gray-300 border border-gray-700 text-xs transition" title="Проверить пинг">
+              <i class="fa-solid fa-bolt"></i>
+            </button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function applyCatalogProxyToCurrentEnv(url) {
+      const input = document.getElementById('proxy-url-input');
+      const toggle = document.getElementById('proxy-toggle-switch');
+      if (input) input.value = url;
+      if (toggle) toggle.checked = true;
+      showToast(`Прокси подставлен в конфигурацию среды [${selectedProxyEnv || 'default'}]. Нажмите "Применить для этой среды".`, "info");
+    }
+
+    async function applyCatalogProxyGlobally(url) {
+      const gInput = document.getElementById('global-proxy-url-input');
+      const gToggle = document.getElementById('global-proxy-toggle');
+      if (gInput) gInput.value = url;
+      if (gToggle) gToggle.checked = true;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/proxy/global`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ url: url, enable: true, apply_all: true })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Глобальный прокси успешно включен: ${url}`, "success");
+          globalProxyState = data.global_proxy;
+          updateGlobalProxyUI(globalProxyState);
+          refreshAll();
+        }
+      } catch (err) {
+        showToast("Ошибка установки глобального прокси", "error");
+      }
+    }
+
+    async function testCatalogProxy(url, btnElem) {
+      if (btnElem) {
+        btnElem.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+        btnElem.disabled = true;
+      }
+      try {
+        const res = await fetch(`${API_BASE}/api/proxies/catalog/test`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ url: url })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`[✓] Отклик ${data.latency} ms | IP: ${data.ip} (${data.country})`, "success");
+        } else {
+          showToast(`[✗] Ошибка: ${data.error || 'Таймаут'}`, "error");
+        }
+      } catch (err) {
+        showToast("Ошибка проверки прокси", "error");
+      } finally {
+        if (btnElem) {
+          btnElem.innerHTML = '<i class="fa-solid fa-bolt"></i>';
+          btnElem.disabled = false;
+        }
+      }
+    }
+
+    async function refreshProxiesCatalog() {
+      const btn = document.getElementById('btn-refresh-catalog');
+      const icon = document.getElementById('icon-refresh-catalog');
+      if (icon) icon.classList.add('fa-spin');
+      if (btn) btn.disabled = true;
+
+      showToast("Тестирование всех прокси каталога...", "info");
+      try {
+        const res = await fetch(`${API_BASE}/api/proxies/catalog/refresh`, {
+          method: 'POST'
+        });
+        const data = await res.json();
+        if (data.proxies) {
+          cachedProxiesCatalog = data.proxies;
+          renderProxiesCatalog(cachedProxiesCatalog);
+          showToast("Каталог прокси успешно обновлен!", "success");
+        }
+      } catch (err) {
+        showToast("Ошибка обновления каталога", "error");
+      } finally {
+        if (icon) icon.classList.remove('fa-spin');
+        if (btn) btn.disabled = false;
+      }
+    }
+
+</script>
 </body>
 </html>

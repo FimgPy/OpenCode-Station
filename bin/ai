@@ -1,9 +1,18 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # CLI command runner for OpenCode
 # Сделано Антоном Ковалкиным все права защищены.
+
 if [ $# -eq 0 ]; then
     exec /usr/local/bin/opencode
 else
     PROMPT="$*"
-    exec /usr/local/bin/opencode run "$PROMPT"
+    MODEL_ARGS=()
+    if [ -n "$OPENCODE_MODEL" ]; then
+        MODEL_ARGS=("-m" "$OPENCODE_MODEL")
+    fi
+    if [ -t 0 ]; then
+        exec /usr/local/bin/opencode run "${MODEL_ARGS[@]}" "$PROMPT"
+    else
+        exec /usr/local/bin/opencode run "${MODEL_ARGS[@]}" "$PROMPT" < /dev/null
+    fi
 fi

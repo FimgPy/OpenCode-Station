@@ -10,7 +10,7 @@ import glob
 import shutil
 import subprocess
 
-DEFAULT_DEST = "/mnt/d/OpenCodeProjects"
+DEFAULT_DEST = "/mnt/d/OpenCode-Station_Package/workspace"
 
 SHORTCUTS = {
     "desktop": "/mnt/c/Users/anton/Desktop",
@@ -19,9 +19,9 @@ SHORTCUTS = {
     "загрузки": "/mnt/c/Users/anton/Downloads",
     "documents": "/mnt/c/Users/anton/Documents",
     "документы": "/mnt/c/Users/anton/Documents",
-    "d": "/mnt/d/OpenCodeProjects",
-    "d:": "/mnt/d/OpenCodeProjects",
-    "workspace": "/mnt/d/OpenCodeProjects"
+    "d": "/mnt/d/OpenCode-Station_Package/workspace",
+    "d:": "/mnt/d/OpenCode-Station_Package/workspace",
+    "workspace": "/mnt/d/OpenCode-Station_Package/workspace"
 }
 
 def to_linux_path(p):
@@ -42,7 +42,7 @@ def to_win_display(p):
     elif p.startswith("/mnt/c"):
         return ("C:" + p[len("/mnt/c"):]).replace("/", "\\")
     elif p.startswith("/home/dev/workspace"):
-        return ("D:\\OpenCodeProjects" + p[len("/home/dev/workspace"):]).replace("/", "\\")
+        return ("D:\\OpenCode-Station_Package\\workspace" + p[len("/home/dev/workspace"):]).replace("/", "\\")
     return p.replace("/", "\\")
 
 def format_size(bytes_size):
@@ -65,7 +65,7 @@ def print_help():
     print("  4. export linux [куда]         -> Экспорт всех файлов проекта из Linux (/home/dev)")
     print("  5. export файл1 файл2 [куда]   -> Экспорт конкретных файлов\n")
     print("Куда можно сохранять:")
-    print("  (по умолчанию)                 -> D:\\OpenCodeProjects")
+    print("  (по умолчанию)                 -> D:\\OpenCode-Station_Package\\workspace")
     print("  desktop                        -> На рабочий стол Windows (C:\\Users\\anton\\Desktop)")
     print("  downloads                      -> В папку Загрузки Windows")
     print("  'C:\\Любая\\Папка'             -> В любую указанную папку Windows\n")

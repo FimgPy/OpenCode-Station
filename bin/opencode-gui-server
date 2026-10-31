@@ -19,66 +19,221 @@ import datetime
 import subprocess
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
+import urllib.request
+import urllib.error
 
-def seed_env_opencode_config(home_dir, ws_dir=None):
+PROVIDER_CONFIG_FILE = "/var/envs/provider_config.json"
+
+DEFAULT_PROVIDER_CONFIG = {
+    "provider": "opencode",
+    "model": "",
+    "apiKey": "",
+    "updated_at": ""
+}
+
+def load_provider_config():
+    if os.path.exists(PROVIDER_CONFIG_FILE):
+        try:
+            with open(PROVIDER_CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return dict(DEFAULT_PROVIDER_CONFIG)
+
+def save_provider_config(cfg):
     try:
-        model_data = {
-            "recent": [{"providerID": "opencode", "modelID": "deepseek-v4.1-flash-free"}],
-            "favorite": [{"providerID": "opencode", "modelID": "deepseek-v4.1-flash-free"}],
-            "variant": {"opencode/deepseek-v4.1-flash-free": "max"}
-        }
-        upsell_data = {
-            "lastSeenAt": 1792847625488,
-            "dontShow": True
-        }
-        opencode_json = {
-            "$schema": "https://opencode.ai/config.json",
-            "model": "opencode/deepseek-v4.1-flash-free",
-            "providers": {
-                "opencode": {
-                    "models": {
-                        "deepseek-v4.1-flash-free": {
-                            "limit": {
-                                "context": 1000000,
-                                "output": 32000
-                            }
-                        }
-                    }
+        os.makedirs(os.path.dirname(PROVIDER_CONFIG_FILE), exist_ok=True)
+        with open(PROVIDER_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+    except Exception:
+        pass
+
+def generate_opencode_json(provider_cfg):
+    prov = provider_cfg.get("provider", "opencode")
+    model = provider_cfg.get("model", "").strip()
+    api_key = provider_cfg.get("apiKey", "").strip()
+
+    cfg = {
+        "$schema": "https://opencode.ai/config.json"
+    }
+    if model:
+        cfg["model"] = model
+
+    if prov == "google" and api_key:
+        cfg["providers"] = {
+            "google": {
+                "settings": {
+                    "apiKey": api_key
                 }
             }
         }
-        tui_dir = os.path.join(home_dir, ".local", "state", "opencode", "latest", "tui")
-        os.makedirs(tui_dir, exist_ok=True)
-        with open(os.path.join(tui_dir, "go-upsell.json"), "w", encoding="utf-8") as f:
-            json.dump(upsell_data, f, indent=2)
-
-        state_dir = os.path.join(home_dir, ".local", "state", "opencode")
-        os.makedirs(state_dir, exist_ok=True)
-        with open(os.path.join(state_dir, "model.json"), "w", encoding="utf-8") as f:
-            json.dump(model_data, f, indent=2)
-
-        cfg_dir = os.path.join(home_dir, ".config", "opencode")
-        os.makedirs(cfg_dir, exist_ok=True)
-        with open(os.path.join(cfg_dir, "opencode.json"), "w", encoding="utf-8") as f:
-            json.dump(opencode_json, f, indent=2)
-
-        if ws_dir and os.path.exists(ws_dir):
-            ws_cfg = os.path.join(ws_dir, ".opencode")
-            os.makedirs(ws_cfg, exist_ok=True)
-            with open(os.path.join(ws_cfg, "opencode.json"), "w", encoding="utf-8") as f:
-                json.dump(opencode_json, f, indent=2)
-    except Exception as e:
+    elif prov == "groq" and api_key:
+        cfg["providers"] = {
+            "groq": {
+                "settings": {
+                    "apiKey": api_key
+                }
+            }
+        }
+    elif prov == "openrouter" and api_key:
+        cfg["providers"] = {
+            "openrouter": {
+                "settings": {
+                    "apiKey": api_key
+                }
+            }
+        }
+    elif prov == "deepseek" and api_key:
+        cfg["providers"] = {
+            "deepseek": {
+                "settings": {
+                    "apiKey": api_key
+                }
+            }
+        }
+    elif prov == "opencode":
         pass
 
+    return cfg
+
+def apply_provider_to_env(env_name, env_info, provider_cfg):
+    home_dir = env_info.get("home", f"/var/envs/{env_name}/home")
+    ws_dir = env_info.get("workspace", f"/var/envs/{env_name}/workspace")
+    cfg = generate_opencode_json(provider_cfg)
+
+    # 1. Config in home
+    cfg_dir = os.path.join(home_dir, ".config", "opencode")
+    os.makedirs(cfg_dir, exist_ok=True)
+    with open(os.path.join(cfg_dir, "opencode.json"), "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+
+    # 2. Config in workspace only if custom settings exist
+    if ws_dir and os.path.exists(ws_dir):
+        ws_cfg = os.path.join(ws_dir, ".opencode")
+        if "providers" in cfg or "model" in cfg:
+            os.makedirs(ws_cfg, exist_ok=True)
+            with open(os.path.join(ws_cfg, "opencode.json"), "w", encoding="utf-8") as f:
+                json.dump(cfg, f, indent=2)
+        else:
+            old_f = os.path.join(ws_cfg, "opencode.json")
+            if os.path.exists(old_f):
+                try: os.remove(old_f)
+                except Exception: pass
+
+    # 3. Model.json in state
+    state_dir = os.path.join(home_dir, ".local", "state", "opencode")
+    os.makedirs(state_dir, exist_ok=True)
+    model_id = provider_cfg.get("model", "").strip()
+    prov_id = provider_cfg.get("provider", "opencode")
+    clean_model_id = model_id.split("/")[-1] if model_id else ""
+
+    model_json_path = os.path.join(state_dir, "model.json")
+    if clean_model_id:
+        with open(model_json_path, "w", encoding="utf-8") as f:
+            json.dump({
+                "recent": [{"providerID": prov_id, "modelID": clean_model_id}],
+                "favorite": [{"providerID": prov_id, "modelID": clean_model_id}],
+                "variant": {}
+            }, f, indent=2)
+    else:
+        # DO NOT force any default model like big-pickle! Leave environment clean.
+        # Сделано Антоном Ковалкиным все права защищены.
+        if os.path.exists(model_json_path):
+            try: os.remove(model_json_path)
+            except Exception: pass
+
+    # 4. Upsell suppress
+    tui_dir = os.path.join(home_dir, ".local", "state", "opencode", "latest", "tui")
+    os.makedirs(tui_dir, exist_ok=True)
+    with open(os.path.join(tui_dir, "go-upsell.json"), "w", encoding="utf-8") as f:
+        json.dump({"lastSeenAt": 9999999999999, "dontShow": True}, f, indent=2)
+
+    # 5. Remove shared service daemon files for full environment isolation
+    for p in [os.path.join(state_dir, "service.json"), os.path.join(cfg_dir, "service.json")]:
+        if os.path.exists(p):
+            try: os.remove(p)
+            except Exception: pass
+
+    # 6. Environment variables in .bashrc
+    bashrc_path = os.path.join(home_dir, ".bashrc")
+    if os.path.exists(bashrc_path):
+        try:
+            with open(bashrc_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            clean_lines = [l for l in lines if not any(k in l for k in ["_API_KEY", "OPENCODE_MODEL"])]
+            api_key = provider_cfg.get("apiKey", "").strip()
+            prov = provider_cfg.get("provider", "")
+            if api_key:
+                if prov == 'google':
+                    clean_lines.append('export GEMINI_API_KEY="' + api_key + '"\nexport GOOGLE_API_KEY="' + api_key + '"\n')
+                elif prov == 'groq':
+                    clean_lines.append('export GROQ_API_KEY="' + api_key + '"\n')
+                elif prov == 'openrouter':
+                    clean_lines.append('export OPENROUTER_API_KEY="' + api_key + '"\n')
+                elif prov == 'deepseek':
+                    clean_lines.append('export DEEPSEEK_API_KEY="' + api_key + '"\n')
+            with open(bashrc_path, "w", encoding="utf-8") as f:
+                f.writelines(clean_lines)
+        except Exception:
+            pass
+
+def test_provider_api(provider, api_key, model):
+    start_t = time.time()
+    try:
+        if provider == "google":
+            clean_m = model.replace("google/", "") if model else "gemini-2.5-flash"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_m}:generateContent?key={api_key}"
+            body = json.dumps({"contents": [{"parts": [{"text": "hi"}]}]}).encode("utf-8")
+            req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+        elif provider == "groq":
+            clean_m = model.replace("groq/", "") if model else "llama-3.3-70b-versatile"
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            body = json.dumps({"model": clean_m, "messages": [{"role": "user", "content": "hi"}]}).encode("utf-8")
+            req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"})
+        elif provider == "openrouter":
+            clean_m = model.replace("openrouter/", "") if model else "meta-llama/llama-3.3-70b-instruct:free"
+            url = "https://openrouter.ai/api/v1/chat/completions"
+            body = json.dumps({"model": clean_m, "messages": [{"role": "user", "content": "hi"}]}).encode("utf-8")
+            req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"})
+        elif provider == "deepseek":
+            clean_m = model.replace("deepseek/", "") if model else "deepseek-chat"
+            url = "https://api.deepseek.com/chat/completions"
+            body = json.dumps({"model": clean_m, "messages": [{"role": "user", "content": "hi"}]}).encode("utf-8")
+            req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"})
+        elif provider == "opencode":
+            url = "https://opencode.ai/inference/openai/v1/chat/completions"
+            body = json.dumps({"model": "deepseek-v4.1-flash-free", "messages": [{"role": "user", "content": "hi"}]}).encode("utf-8")
+            req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json", "Authorization": "Bearer public"})
+        else:
+            return False, "Неизвестный провайдер"
+
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            latency = int((time.time() - start_t) * 1000)
+            return True, f"Успешно подключено! Задержка: {latency} мс"
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode("utf-8", errors="ignore")
+        if "FreeUsageLimitError" in err_body:
+            return False, "429: Лимит бесплатных запросов OpenCode исчерпан на сегодня (сброс в 03:00 МСК)"
+        return False, f"Ошибка {e.code}: {err_body[:100]}"
+    except Exception as e:
+        return False, f"Ошибка подключения: {str(e)}"
+
+def seed_env_opencode_config(home_dir, ws_dir=None, env_name=None):
+    try:
+        pcfg = load_provider_config()
+        env_info = {"home": home_dir, "workspace": ws_dir or ""}
+        apply_provider_to_env(env_name or "default", env_info, pcfg)
+    except Exception:
+        pass
 
 PORT = 7682
 HOST = "0.0.0.0"
 
 ENVS_DIR = "/var/envs"
 MANIFEST_FILE = os.path.join(ENVS_DIR, "manifest.json")
-WIN_PROJECTS_DIR = "/mnt/d/OpenCodeProjects"
+WIN_PROJECTS_DIR = "/mnt/d/OpenCode-Station_Package/workspace"
 if not os.path.exists("/mnt/d"):
-    WIN_PROJECTS_DIR = "/mnt/c/OpenCodeProjects"
+    WIN_PROJECTS_DIR = "/mnt/c/OpenCode-Station_Package/workspace"
 
 RANDOM_NAMES = [
     "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta",
@@ -93,9 +248,9 @@ def to_win_path(p):
     elif p.startswith("/mnt/c"):
         return ("C:" + p[len("/mnt/c"):]).replace("/", "\\")
     elif p.startswith("/home/dev/workspace/default"):
-        return ("D:\\OpenCodeProjects\\default" + p[len("/home/dev/workspace/default"):]).replace("/", "\\")
+        return ("D:\\OpenCode-Station_Package\\workspace\\default" + p[len("/home/dev/workspace/default"):]).replace("/", "\\")
     elif p.startswith("/home/dev/workspace/default"):
-        return ("D:\\OpenCodeProjects" + p[len("/home/dev/workspace/default"):]).replace("/", "\\")
+        return ("D:\\OpenCode-Station_Package\\workspace" + p[len("/home/dev/workspace/default"):]).replace("/", "\\")
     elif p.startswith("/var/envs"):
         return ("\\\\wsl.localhost\\Ubuntu" + p).replace("/", "\\")
     elif p.startswith("/home/dev"):
@@ -105,8 +260,8 @@ def to_win_path(p):
 
 def to_linux_path(p):
     p = p.strip().strip("'\"")
-    if p.lower() in ["d", "d:", "d:\\opencodeprojects", "d:/opencodeprojects"]:
-        return "/mnt/d/OpenCodeProjects"
+    if p.lower() in ["d", "d:", "d:\\opencode-station_package/workspace", "d:/opencode-station_package/workspace"]:
+        return "/mnt/d/OpenCode-Station_Package/workspace"
     if len(p) >= 2 and p[1] == ':':
         drive = p[0].lower()
         rest = p[2:].replace("\\", "/").lstrip("/")
@@ -159,7 +314,7 @@ def ensure_manifest():
                     "machine_id": default_mid,
                     "home": "/home/dev",
                     "workspace": "/home/dev/workspace/default",
-                    "workspace_win": "D:\\OpenCodeProjects\\default",
+                    "workspace_win": "D:\\OpenCode-Station_Package\\workspace\\default",
                     "proxy_url": "",
                     "proxy_enabled": False,
                     "created_at": "2026-10-29 21:00:00",
@@ -184,14 +339,14 @@ def ensure_manifest():
                     info["proxy_enabled"] = False
                     updated = True
                 if name == "default":
-                    if info.get("workspace") == "/mnt/d/OpenCodeProjects":
+                    if info.get("workspace") == "/mnt/d/OpenCode-Station_Package/workspace":
                         info["workspace"] = "/home/dev/workspace/default"
-                        info["workspace_win"] = "D:\\OpenCodeProjects"
+                        info["workspace_win"] = "D:\\OpenCode-Station_Package\\workspace"
                         updated = True
                 else:
                     if info.get("workspace", "").startswith("/mnt/d/"):
                         info["workspace"] = f"/var/envs/{name}/workspace"
-                        info["workspace_win"] = f"D:\\OpenCodeProjects\\{name}"
+                        info["workspace_win"] = f"D:\\OpenCode-Station_Package\\workspace\\{name}"
                         updated = True
             if updated:
                 with open(MANIFEST_FILE, "w", encoding="utf-8") as f:
@@ -203,6 +358,110 @@ def ensure_manifest():
 def save_manifest(data):
     with open(MANIFEST_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
+
+GLOBAL_PROXY_FILE = "/var/envs/global_proxy.json"
+PROXIES_CATALOG_FILE = "/var/envs/proxies_catalog.json"
+PACKAGE_CATALOG_FILE = "/mnt/d/OpenCode-Station_Package/config/proxies_catalog.json"
+
+def get_global_proxy():
+    if os.path.exists(GLOBAL_PROXY_FILE):
+        try:
+            with open(GLOBAL_PROXY_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"enabled": False, "url": ""}
+
+def set_global_proxy(url, enabled=True, apply_to_all_envs=True):
+    url = (url or "").strip()
+    if url and "://" not in url:
+        url = f"http://{url}"
+    enabled = bool(enabled)
+    cfg = {"enabled": enabled, "url": url}
+    try:
+        os.makedirs(os.path.dirname(GLOBAL_PROXY_FILE), exist_ok=True)
+        with open(GLOBAL_PROXY_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
+    manifest = ensure_manifest()
+    manifest["global_proxy"] = cfg
+    if apply_to_all_envs:
+        for ename, einfo in manifest.get("environments", {}).items():
+            einfo["proxy_url"] = url
+            einfo["proxy_enabled"] = enabled
+            h = einfo.get("home", "/home/dev")
+            cfg_file = os.path.join(h, ".proxy_config")
+            try:
+                state = "yes" if enabled else "no"
+                with open(cfg_file, "w") as f:
+                    f.write(f'PROXY_ENABLED="{state}"\nPROXY_URL="{url}"\n')
+            except Exception:
+                pass
+    save_manifest(manifest)
+
+    prof_file = "/etc/profile.d/global_proxy.sh"
+    try:
+        if enabled and url:
+            with open(prof_file, "w") as f:
+                f.write(f"""# Global proxy configuration
+# Сделано Антоном Ковалкиным все права защищены.
+export HTTP_PROXY="{url}"
+export HTTPS_PROXY="{url}"
+export http_proxy="{url}"
+export https_proxy="{url}"
+export ALL_PROXY="{url}"
+export all_proxy="{url}"
+export NO_PROXY="127.0.0.1,localhost,::1"
+export no_proxy="127.0.0.1,localhost,::1"
+""")
+        else:
+            if os.path.exists(prof_file):
+                os.remove(prof_file)
+    except Exception:
+        pass
+    return cfg
+
+def get_proxies_catalog():
+    for p in [PROXIES_CATALOG_FILE, PACKAGE_CATALOG_FILE]:
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+    return []
+
+def test_proxy_connectivity(proxy_url, timeout=3.5):
+    import urllib.request, time
+    proxy_url = (proxy_url or "").strip()
+    if not proxy_url:
+        return {"success": False, "error": "URL не указан"}
+    if "://" not in proxy_url:
+        proxy_url = f"http://{proxy_url}"
+    try:
+        t0 = time.time()
+        proxy_h = urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url})
+        opener = urllib.request.build_opener(proxy_h)
+        req = urllib.request.Request("http://ip-api.com/json/?fields=status,country,countryCode,city,query,org", headers={"User-Agent": "curl/7.88.1"})
+        with opener.open(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode())
+            lat = int((time.time() - t0) * 1000)
+            if data.get("status") == "success":
+                return {
+                    "success": True,
+                    "url": proxy_url,
+                    "ip": data.get("query"),
+                    "country": data.get("country", "Неизвестно"),
+                    "country_code": data.get("countryCode", "UN"),
+                    "city": data.get("city", ""),
+                    "org": data.get("org", ""),
+                    "latency": lat
+                }
+            return {"success": False, "url": proxy_url, "error": data.get("message", "IP API status fail")}
+    except Exception as e:
+        return {"success": False, "url": proxy_url, "error": str(e)}
 
 def create_env(name=None):
     data = ensure_manifest()
@@ -219,7 +478,7 @@ def create_env(name=None):
     env_path = os.path.join(ENVS_DIR, name)
     env_home = os.path.join(env_path, "home")
     env_ws = os.path.join(env_path, "workspace")
-    win_ws = f"D:\\OpenCodeProjects\\{name}"
+    win_ws = f"D:\\OpenCode-Station_Package\\workspace\\{name}"
 
     os.makedirs(env_path, exist_ok=True)
     os.makedirs(env_home, exist_ok=True)
@@ -246,6 +505,10 @@ def create_env(name=None):
     with open(os.path.join(env_home, ".bashrc"), "w", encoding="utf-8") as f:
         f.write(f"""export OPENCODE_ENV="{name}"
 export HOME="{env_home}"
+export XDG_DATA_HOME="{env_home}/.local/share"
+export XDG_CONFIG_HOME="{env_home}/.config"
+export XDG_STATE_HOME="{env_home}/.local/state"
+export XDG_CACHE_HOME="{env_home}/.cache"
 if [ -f "$HOME/.proxy_config" ]; then . "$HOME/.proxy_config"; fi
 if [ -f /etc/profile.d/cmd_mode.sh ]; then . /etc/profile.d/cmd_mode.sh; fi
 cd "{env_ws}" 2>/dev/null || true
@@ -261,8 +524,35 @@ cd "{env_ws}" 2>/dev/null || true
     except Exception:
         pass
 
-    seed_env_opencode_config(env_home, env_ws)
+    seed_env_opencode_config(env_home, env_ws, name)
+    try:
+        with open("/etc/machine-id", "w") as f:
+            f.write(f"{mid}\n")
+        with open("/var/lib/dbus/machine-id", "w") as f:
+            f.write(f"{mid}\n")
+    except Exception:
+        pass
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    gp = get_global_proxy()
+    gp_url = gp.get("url", "")
+    gp_enabled = gp.get("enabled", False)
+    if gp_enabled and gp_url:
+        p_url = gp_url
+        p_enabled = True
+        try:
+            with open(os.path.join(env_home, ".proxy_config"), "w") as f:
+                f.write(f'PROXY_ENABLED="yes"\nPROXY_URL="{p_url}"\n')
+        except Exception:
+            pass
+    else:
+        p_url = ""
+        p_enabled = False
+        try:
+            with open(os.path.join(env_home, ".proxy_config"), "w") as f:
+                f.write('PROXY_ENABLED="no"\nPROXY_URL=""\n')
+        except Exception:
+            pass
+
     envs[name] = {
         "name": name,
         "hostname": host,
@@ -270,8 +560,8 @@ cd "{env_ws}" 2>/dev/null || true
         "home": env_home,
         "workspace": env_ws,
         "workspace_win": win_ws,
-        "proxy_url": "",
-        "proxy_enabled": False,
+        "proxy_url": p_url,
+        "proxy_enabled": p_enabled,
         "created_at": now_str,
         "description": f"Анонимная изолированная среда {name}"
     }
@@ -349,14 +639,14 @@ def delete_env(name, delete_workspace=False):
     # 2. Delete workspace directories if requested
     if delete_workspace:
         if name == "default":
-            for ws in ["/home/dev/workspace/default", "/mnt/d/OpenCodeProjects/default"]:
+            for ws in ["/home/dev/workspace/default", "/mnt/d/OpenCode-Station_Package/workspace/default"]:
                 if os.path.exists(ws):
                     try:
                         shutil.rmtree(ws, ignore_errors=True)
                     except Exception:
                         pass
         else:
-            ws_paths = [info.get("workspace"), f"/mnt/d/OpenCodeProjects/{name}", f"/var/envs/{name}/workspace"]
+            ws_paths = [info.get("workspace"), f"/mnt/d/OpenCode-Station_Package/workspace/{name}", f"/var/envs/{name}/workspace"]
             for ws in ws_paths:
                 if ws and os.path.exists(ws):
                     try:
@@ -419,6 +709,10 @@ def set_active_env(name):
         except Exception:
             pass
 
+    try:
+        subprocess.run(["killall", "-9", "opencode-bin"], capture_output=True)
+    except Exception:
+        pass
     return True, f"Активная среда переключена на '{name}'"
 
 def get_dir_contents(path):
@@ -509,6 +803,14 @@ def check_env_ip(env_name=None):
             except Exception:
                 pass
 
+    is_global = False
+    if not proxy_url or not proxy_enabled:
+        gp = get_global_proxy()
+        if gp.get("enabled") and gp.get("url"):
+            proxy_url = gp["url"]
+            proxy_enabled = True
+            is_global = True
+
     cmd = ["curl", "-s", "--connect-timeout", "3", "--max-time", "6", "http://ip-api.com/json/?fields=status,message,country,city,query,org"]
     if proxy_enabled and proxy_url:
         cmd.extend(["-x", proxy_url])
@@ -520,6 +822,7 @@ def check_env_ip(env_name=None):
             if data.get("status") == "success":
                 data["proxy_active"] = proxy_enabled and bool(proxy_url)
                 data["proxy_url"] = proxy_url
+                data["is_global"] = is_global
                 data["env"] = env_name
                 return data
     except Exception:
@@ -532,6 +835,7 @@ def check_env_ip(env_name=None):
         "city": "",
         "proxy_active": proxy_enabled and bool(proxy_url),
         "proxy_url": proxy_url,
+        "is_global": is_global,
         "env": env_name
     }
 
@@ -621,12 +925,18 @@ class GUIRequestHandler(BaseHTTPRequestHandler):
             manifest = ensure_manifest()
             env_info = manifest.get("environments", {}).get(env_name, {})
             ip_check = get_cached_env_ip(env_name, force=True)
+            gp = get_global_proxy()
             self.send_json({
                 "env": env_name,
                 "proxy_url": env_info.get("proxy_url", ""),
                 "proxy_enabled": env_info.get("proxy_enabled", False),
+                "global_proxy": gp,
                 "ip_check": ip_check
             })
+        elif path == "/api/proxy/global":
+            self.send_json({"success": True, "global_proxy": get_global_proxy()})
+        elif path == "/api/proxies/catalog":
+            self.send_json({"success": True, "proxies": get_proxies_catalog(), "global_proxy": get_global_proxy()})
 
         elif path == "/api/files":
             manifest = ensure_manifest()
@@ -715,6 +1025,8 @@ class GUIRequestHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
             return
+        elif path == "/api/provider":
+            self.send_json(load_provider_config())
         elif path == "/api/myip":
             env_name = query.get("env", ["default"])[0]
             self.send_json(check_env_ip(env_name))
@@ -745,7 +1057,7 @@ class GUIRequestHandler(BaseHTTPRequestHandler):
         elif path == "/api/export":
             src_paths = req_data.get("paths", [])
             src_dir = req_data.get("src_dir", "/home/dev/workspace/default")
-            dest_win = req_data.get("dest_win", "D:\\OpenCodeProjects")
+            dest_win = req_data.get("dest_win", "D:\\OpenCode-Station_Package\\workspace")
             dest_linux = to_linux_path(dest_win)
             os.makedirs(dest_linux, exist_ok=True)
             copied = []
@@ -777,7 +1089,7 @@ class GUIRequestHandler(BaseHTTPRequestHandler):
             self.send_json({"success": True, "copied": copied, "count": len(copied), "dest_win": dest_win})
 
         elif path == "/api/import":
-            src_win = req_data.get("src_win", "D:\\OpenCodeProjects")
+            src_win = req_data.get("src_win", "D:\\OpenCode-Station_Package\\workspace")
             dest_linux = req_data.get("dest_linux", "/home/dev/workspace/default")
             src_linux = to_linux_path(src_win)
             if not os.path.exists(src_linux):
@@ -898,7 +1210,7 @@ class GUIRequestHandler(BaseHTTPRequestHandler):
                 
                 # If default directory was deleted, also clean mirror directory
                 if target.rstrip("/\\").endswith("default"):
-                    for mirror in ["/home/dev/workspace/default", "/mnt/d/OpenCodeProjects/default"]:
+                    for mirror in ["/home/dev/workspace/default", "/mnt/d/OpenCode-Station_Package/workspace/default"]:
                         if os.path.exists(mirror):
                             shutil.rmtree(mirror, ignore_errors=True)
 
@@ -945,6 +1257,7 @@ class GUIRequestHandler(BaseHTTPRequestHandler):
             env_name = req_data.get("env", "default").strip()
             url = req_data.get("url", "").strip()
             enable = req_data.get("enable", True)
+            make_global = req_data.get("make_global", False)
 
             if url and "://" not in url:
                 url = f"http://{url}"
@@ -966,6 +1279,9 @@ class GUIRequestHandler(BaseHTTPRequestHandler):
                 except Exception:
                     pass
 
+                if make_global:
+                    set_global_proxy(url, enable, apply_to_all_envs=True)
+
                 # If SOCKS proxy enabled, ensure local bridge is started
                 if enable and url and any(url.lower().startswith(s) for s in ["socks5://", "socks5h://", "socks4://", "socks://"]):
                     try:
@@ -982,6 +1298,81 @@ class GUIRequestHandler(BaseHTTPRequestHandler):
                 self.send_json({"success": True, "env": env_name, "ip_check": ip_res})
             else:
                 self.send_json({"error": f"Среда '{env_name}' не найдена"}, status=404)
+
+        elif path == "/api/proxy/global":
+            url = req_data.get("url", "").strip()
+            enable = req_data.get("enable", True)
+            apply_all = req_data.get("apply_all", True)
+            cfg = set_global_proxy(url, enable, apply_all)
+            self.send_json({"success": True, "global_proxy": cfg})
+
+        elif path == "/api/proxies/catalog/test":
+            url = req_data.get("url", "").strip()
+            res = test_proxy_connectivity(url)
+            self.send_json(res)
+
+        elif path == "/api/proxies/catalog/refresh":
+            import concurrent.futures
+            cat = get_proxies_catalog()
+            updated_cat = []
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
+                futs = {ex.submit(test_proxy_connectivity, p.get("url", "")): p for p in cat}
+                for f in concurrent.futures.as_completed(futs):
+                    old_p = futs[f]
+                    try:
+                        res = f.result()
+                        if res.get("success"):
+                            old_p["latency"] = res.get("latency", old_p.get("latency", 999))
+                            old_p["working"] = True
+                            if res.get("ip"): old_p["ip"] = res["ip"]
+                            if res.get("country"): old_p["country"] = res["country"]
+                            if res.get("city"): old_p["city"] = res["city"]
+                        else:
+                            old_p["working"] = False
+                    except Exception:
+                        old_p["working"] = False
+                    updated_cat.append(old_p)
+            updated_cat.sort(key=lambda x: (not x.get("working", False), x.get("latency", 9999)))
+            for pth in [PROXIES_CATALOG_FILE, PACKAGE_CATALOG_FILE]:
+                try:
+                    with open(pth, "w", encoding="utf-8") as f:
+                        json.dump(updated_cat, f, indent=2, ensure_ascii=False)
+                except Exception:
+                    pass
+            self.send_json({"success": True, "proxies": updated_cat})
+
+        elif path == "/api/provider/save":
+            provider = req_data.get("provider", "opencode")
+            model = req_data.get("model", "opencode/deepseek-v4.1-flash-free")
+            api_key = req_data.get("apiKey", "").strip()
+            apply_all = req_data.get("apply_all", True)
+            
+            pcfg = {
+                "provider": provider,
+                "model": model,
+                "apiKey": api_key,
+                "updated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            save_provider_config(pcfg)
+            
+            manifest = ensure_manifest()
+            envs = manifest.get("environments", {})
+            active_env = manifest.get("active", "default")
+            
+            if apply_all:
+                for ename, einfo in envs.items():
+                    apply_provider_to_env(ename, einfo, pcfg)
+            elif active_env in envs:
+                apply_provider_to_env(active_env, envs[active_env], pcfg)
+                
+            self.send_json({"success": True, "config": pcfg})
+
+        elif path == "/api/provider/test":
+            provider = req_data.get("provider", "opencode")
+            model = req_data.get("model", "")
+            api_key = req_data.get("apiKey", "").strip()
+            ok, msg = test_provider_api(provider, api_key, model)
+            self.send_json({"success": ok, "message": msg})
 
         elif path == "/api/proxy/toggle":
             env_name = req_data.get("env", "default").strip()

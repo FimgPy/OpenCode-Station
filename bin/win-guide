@@ -4,7 +4,7 @@ echo -e "       \033[1;32mКроссплатформенность: Как ра�
 echo -e "\033[1;36m==============================================================================\033[0m"
 echo ""
 echo -e "Все проекты в папке \033[1;33m~/workspace\033[0m физически хранятся на Windows в:"
-echo -e "  \033[1;32mC:\\Users\\anton\\OpenCodeProjects\033[0m"
+echo -e "  \033[1;32mC:\\Users\\anton\\OpenCode-Station_Package/workspace\033[0m"
 echo ""
 echo -e "\033[1;33m1. Node.js / Web (npm):\033[0m"
 echo -e "   - Не копируйте папку \033[1;31mnode_modules\033[0m напрямую между Linux и Windows."
