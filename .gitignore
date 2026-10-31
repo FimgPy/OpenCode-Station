@@ -22,3 +22,4 @@ Desktop.ini
 __pycache__/
 *.py[cod]
 *$py.class
+upload_to_github.bat
