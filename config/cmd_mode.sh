@@ -118,7 +118,7 @@ alias cd..='builtin cd ..'
 cls() { clear; }
 
 dir() {
-    \/cmd-dir "$@"
+    command cmd-dir "$@"
 }
 
 type() {
@@ -208,10 +208,10 @@ ver() {
 }
 
 explorer() {
-    \/win-open "$@"
+    command win-open "$@"
 }
 open() {
-    \/win-open "$@"
+    command win-open "$@"
 }
 
 export() {
@@ -225,38 +225,38 @@ export() {
     fi
     case "$1" in
         all|ALL|select|SELECT|help|HELP|--help|-h|/?)
-            \/export-win "$@"
+            command export-win "$@"
             ;;
         *)
-            \/export-win "$@"
+            command export-win "$@"
             ;;
     esac
 }
 
 ai() {
-    \/ai "$@"
+    command ai "$@"
 }
 ask() {
-    \/ai "$@"
+    command ai "$@"
 }
 
 tree() {
-    \/cmd-tree "$@"
+    command cmd-tree "$@"
 }
 
 linux() {
-    \/linux-dirs "$@"
+    command linux-dirs "$@"
 }
 ldir() {
-    \/linux-dirs "$@"
+    command linux-dirs "$@"
 }
 
 opencode() {
-    \/opencode "$@"
+    command opencode "$@"
 }
 
 proxy() {
-    \/proxy-tool "$@"
+    command proxy-tool "$@"
     local rc=$?
     local cfg="$HOME/.proxy_config"
     local default_no_proxy="localhost,127.0.0.1,::1,local.home"
@@ -281,7 +281,7 @@ proxy() {
 }
 
 myip() {
-    \/myip "$@"
+    command myip "$@"
 }
 # NOTE: do not shadow /usr/sbin/ip — it is a core networking utility.
 # The convenience alias below keeps the old CMD-style "IP" command working.
@@ -290,17 +290,17 @@ alias IP=myip
 # Environment management commands
 env() {
     if [ $# -eq 0 ]; then
-        \/env-mgr list
+        command env-mgr list
     else
         case "$1" in
             list|ls|create|new|add|switch|use|enter|select|clean|reset|delete|remove|rm|del|purge|clear|clear-all|info|status|whoami|help|--help|-h|/?)
-                \/env-mgr "$@"
+                command env-mgr "$@"
                 ;;
             *)
                 if [[ "$1" == *"="* ]]; then
                     /usr/bin/env "$@"
                 else
-                    \/env-mgr "$@"
+                    command env-mgr "$@"
                 fi
                 ;;
         esac
@@ -308,23 +308,23 @@ env() {
 }
 
 envs() {
-    \/env-mgr list
+    command env-mgr list
 }
 
 switch() {
-    \/env-mgr switch "$@"
+    command env-mgr switch "$@"
 }
 
 help() {
     if [ $# -eq 0 ]; then
-        \/help
+        command help
     else
         case "$1" in
-            dir|DIR) \/cmd-dir /? ;;
-            export|EXPORT) \/export-win help ;;
-            linux|LINUX) \/linux-dirs --help ;;
-            tree|TREE) \/cmd-tree --help ;;
-            env|ENV) \/env-mgr help ;;
+            dir|DIR) command cmd-dir /? ;;
+            export|EXPORT) command export-win help ;;
+            linux|LINUX) command linux-dirs --help ;;
+            tree|TREE) command cmd-tree --help ;;
+            env|ENV) command env-mgr help ;;
             proxy|PROXY) proxy status ;;
             myip|MYIP|ip|IP) myip ;;
             *) builtin help "$@" 2>/dev/null || echo "Справка по команде '$1' недоступна. Введите help для списка команд." ;;

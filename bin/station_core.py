@@ -31,7 +31,7 @@ import zlib
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 APP_NAME = "OpenCode Station"
-APP_VERSION = "3.1.0"
+APP_VERSION = "3.1.1"
 DEFAULT_NO_PROXY = "127.0.0.1,localhost,::1,local.home"
 
 # ---------------------------------------------------------------------------
