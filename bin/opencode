@@ -81,14 +81,22 @@ if [ "${ENV_PROXY_ENABLED:-no}" = "yes" ] && [ -n "${ENV_PROXY_URL:-}" ]; then
     fi
 
     if [ -n "$PROXY_EFFECTIVE" ] && [ "${OPENCODE_PROXY_PREFLIGHT:-1}" != "0" ]; then
-        if ! PREFLIGHT_ERR="$(python3 "$CORE" proxy-preflight "$PROXY_EFFECTIVE" 2>&1)"; then
+        PREFLIGHT_OUT="$(python3 "$CORE" proxy-preflight "$PROXY_EFFECTIVE" 2>&1)"
+        PREFLIGHT_RC=$?
+        if [ "$PREFLIGHT_RC" -eq 3 ]; then
             echo "=============================================================================="
-            echo "  [!] Прокси не прошёл проверку TLS: $PROXY_EFFECTIVE"
-            echo "      $PREFLIGHT_ERR"
+            echo "  [!] Прокси перехватывает TLS: $PROXY_EFFECTIVE"
+            echo "      $PREFLIGHT_OUT"
             echo "      OpenCode не будет использовать этот прокси (иначе возникает"
             echo "      SELF_SIGNED_CERT_IN_CHAIN). Выберите прокси с чистым HTTPS."
             echo "=============================================================================="
             PROXY_EFFECTIVE=""
+        elif [ "$PREFLIGHT_RC" -ne 0 ]; then
+            echo "[!] Прокси не прошёл проверку TLS: $PROXY_EFFECTIVE"
+            [ -n "$PREFLIGHT_OUT" ] && echo "    $PREFLIGHT_OUT"
+            echo "    Прокси оставлен включённым, чтобы не раскрывать реальный IP среды."
+        elif [ -n "$PREFLIGHT_OUT" ]; then
+            echo "[i] Проверка прокси: $PREFLIGHT_OUT"
         fi
     fi
 
@@ -187,8 +195,7 @@ if [ "${ENV_ISOLATION:-user}" = "unshare" ] && [ "${OPENCODE_STATION_NO_NS:-0}" 
 
     if [ "$TARGET_UID" -eq 0 ] || [ -n "$SUDO" ]; then
         PRESERVE_VARS="HOME,OPENCODE_TEST_HOME,OPENCODE_STATION_ROOT,OPENCODE_STATION_DATA,OPENCODE_ENV,OPENCODE_PROXY_ACTIVE,XDG_DATA_HOME,XDG_CONFIG_HOME,XDG_STATE_HOME,XDG_CACHE_HOME,OPENCODE_DISABLE_AUTOUPDATE,OPENCODE_DISABLE_CLAUDE_CODE,OPENCODE_DISABLE_CLAUDE_CODE_SKILLS,OPENCODE_DISABLE_CHANNEL_DB,OPENCODE_MODEL,OPENCODE_API_KEY,GEMINI_API_KEY,GOOGLE_API_KEY,GROQ_API_KEY,OPENROUTER_API_KEY,DEEPSEEK_API_KEY,HTTP_PROXY,HTTPS_PROXY,http_proxy,https_proxy,ALL_PROXY,all_proxy,NO_PROXY,no_proxy,TERM,COLORTERM,LANG,LC_ALL,PATH"
-        # shellcheck disable=SC2086
-        exec $SUDO --preserve-env="$PRESERVE_VARS" unshare --mount --uts bash -c '
+        NS_CMD=(unshare --mount --uts bash -c '
             env_host="$1"; mid_src="$2"; host_src="$3"; t_uid="$4"; t_gid="$5"
             shift 5
             hostname "$env_host" 2>/dev/null || true
@@ -201,7 +208,12 @@ if [ "${ENV_ISOLATION:-user}" = "unshare" ] && [ "${OPENCODE_STATION_NO_NS:-0}" 
             exec "$@"
         ' _ "${ENV_HOSTNAME:-node-${OPENCODE_ENV}}" "${ENV_META:-}/machine-id" \
             "${ENV_META:-}/hostname" "$TARGET_UID" "$TARGET_GID" \
-            "$OPENCODE_BIN" "${RUN_ARGS[@]}"
+            "$OPENCODE_BIN" "${RUN_ARGS[@]}")
+        if [ -n "$SUDO" ]; then
+            exec $SUDO --preserve-env="$PRESERVE_VARS" "${NS_CMD[@]}"
+        else
+            exec "${NS_CMD[@]}"
+        fi
     fi
 fi
 

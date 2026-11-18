@@ -97,7 +97,8 @@ ln -sf /usr/local/bin/ai /usr/local/bin/ask 2>/dev/null || true
 ln -sf /usr/local/bin/cmd-tree /usr/local/bin/tree 2>/dev/null || true
 ln -sf /usr/local/bin/linux-dirs /usr/local/bin/linux 2>/dev/null || true
 ln -sf /usr/local/bin/linux-dirs /usr/local/bin/ldir 2>/dev/null || true
-ln -sf /usr/local/bin/myip /usr/local/bin/ip 2>/dev/null || true
+# /usr/local/bin/ip used to shadow the real iproute2 utility with myip.
+rm -f /usr/local/bin/ip 2>/dev/null || true
 ln -sf /usr/local/bin/win-open /usr/local/bin/open 2>/dev/null || true
 ln -sf /usr/local/bin/export-win /usr/local/bin/export 2>/dev/null || true
 ln -sf /usr/local/bin/proxy-tool /usr/local/bin/proxy 2>/dev/null || true

@@ -102,7 +102,7 @@
         <div>
           <div class="flex items-center gap-2">
             <span class="text-lg font-bold tracking-tight text-white">OPENCODE <span class="text-cyan-400">STATION</span></span>
-            <span class="text-xs px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 font-mono">v2.5</span>
+            <span class="text-xs px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 font-mono">v3.0</span>
           </div>
           <div class="text-xs text-gray-400 flex items-center gap-1.5">
             <span>Сделано Антоном Ковалкиным</span>
@@ -175,7 +175,7 @@
           <div>
             <div class="text-xs uppercase tracking-wider text-gray-400">Автономных сред</div>
             <div id="stat-total-envs" class="text-2xl font-bold font-mono text-white mt-1">2</div>
-            <div class="text-xs text-emerald-400 mt-0.5">Работают внутри Linux (ext4)</div>
+            <div id="stat-envs-note" class="text-xs text-emerald-400 mt-0.5">Работают внутри Linux (ext4)</div>
           </div>
           <div class="w-12 h-12 rounded-xl bg-cyan-950/60 border border-cyan-800 text-cyan-400 flex items-center justify-center text-xl">
             <i class="fa-solid fa-server"></i>
@@ -186,7 +186,7 @@
           <div>
             <div class="text-xs uppercase tracking-wider text-gray-400">Активная среда</div>
             <div id="stat-active-env" class="text-2xl font-bold font-mono text-emerald-400 mt-1">default</div>
-            <div class="text-xs text-gray-500 mt-0.5">Рабочая папка: /home/dev/workspace</div>
+            <div class="text-xs text-gray-500 mt-0.5">Рабочая папка: <span id="stat-active-path" class="font-mono">/home/dev/workspace</span></div>
           </div>
           <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-emerald-800 text-emerald-400 flex items-center justify-center text-xl">
             <i class="fa-solid fa-circle-check"></i>
@@ -197,7 +197,7 @@
           <div>
             <div class="text-xs uppercase tracking-wider text-gray-400">Изоляция файлов</div>
             <div class="text-2xl font-bold font-mono text-cyan-300 mt-1">Включена</div>
-            <div class="text-xs text-gray-500 mt-0.5">Файлы не пишутся на диск D без команды</div>
+            <div id="stat-isolation-note" class="text-xs text-gray-500 mt-0.5">Файлы не пишутся на диск D без команды</div>
           </div>
           <div class="w-12 h-12 rounded-xl bg-purple-950/60 border border-purple-800 text-purple-400 flex items-center justify-center text-xl">
             <i class="fa-solid fa-shield-halved"></i>
@@ -246,7 +246,7 @@
         <div class="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
           <span class="text-xs font-semibold uppercase tracking-wider text-gray-500 px-1">Рабочие зоны:</span>
           
-          <button onclick="navigateFiles('/home/dev/workspace')" class="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-emerald-400 border border-gray-700 text-xs font-mono flex items-center gap-1.5 shadow">
+          <button onclick="navigateFiles(currentEnvs[activeEnv]?.workspace || '/home/dev/workspace')" class="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-emerald-400 border border-gray-700 text-xs font-mono flex items-center gap-1.5 shadow">
             <i class="fa-brands fa-linux text-emerald-400"></i>
             <span>Linux Workspace (default)</span>
           </button>
@@ -501,7 +501,7 @@
                 <span>Глобальный fallback (для сред без своего прокси)</span>
                 <span id="badge-global-proxy" class="text-xs px-2.5 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700 font-mono">ВЫКЛЮЧЕН</span>
               </div>
-              <p class="text-xs text-gray-400 mt-0.5">Единая точка выхода: все чаты, сессии и новые анонимные среды автоматически подключаются через этот прокси</p>
+              <p class="text-xs text-gray-400 mt-0.5">Только для сред без собственного прокси. Не перезаписывает персональные настройки сред.</p>
             </div>
           </div>
           <div class="flex items-center gap-3">
@@ -1011,6 +1011,20 @@
         document.querySelectorAll('.windows-only').forEach(el => {
           el.style.display = (platformName === 'wsl' || platformName === 'windows') ? '' : 'none';
         });
+        const envsNote = document.getElementById('stat-envs-note');
+        const isolationNote = document.getElementById('stat-isolation-note');
+        if (envsNote) {
+          envsNote.textContent = platformName === 'macos'
+            ? 'Изолированные HOME/XDG каталоги'
+            : (platformName === 'windows' ? 'User-space изоляция (Windows)' : 'Работают внутри Linux (ext4)');
+        }
+        if (isolationNote) {
+          isolationNote.textContent = platformName === 'wsl'
+            ? 'Файлы не пишутся на диск D без команды'
+            : (platformName === 'windows' ? 'Отдельные HOME и XDG каталоги' : 'Отдельные HOME, конфиги и сессии');
+        }
+        const activePath = document.getElementById('stat-active-path');
+        if (activePath) activePath.textContent = currentEnvs[activeEnv]?.workspace || '/home/dev/workspace';
         if (!pathInitialized && currentEnvs[activeEnv]?.workspace) {
           currentPath = currentEnvs[activeEnv].workspace;
           pathInitialized = true;

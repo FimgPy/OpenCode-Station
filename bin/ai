@@ -2,8 +2,12 @@
 # CLI command runner for OpenCode
 # Сделано Антоном Ковалкиным все права защищены.
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OPENCODE_CMD="${STATION_BIN:-$SCRIPT_DIR}/opencode"
+[ -x "$OPENCODE_CMD" ] || OPENCODE_CMD="$(command -v opencode || echo "$OPENCODE_CMD")"
+
 if [ $# -eq 0 ]; then
-    exec /usr/local/bin/opencode
+    exec "$OPENCODE_CMD"
 else
     PROMPT="$*"
     MODEL_ARGS=()
@@ -11,8 +15,8 @@ else
         MODEL_ARGS=("-m" "$OPENCODE_MODEL")
     fi
     if [ -t 0 ]; then
-        exec /usr/local/bin/opencode run "${MODEL_ARGS[@]}" "$PROMPT"
+        exec "$OPENCODE_CMD" run "${MODEL_ARGS[@]}" "$PROMPT"
     else
-        exec /usr/local/bin/opencode run "${MODEL_ARGS[@]}" "$PROMPT" < /dev/null
+        exec "$OPENCODE_CMD" run "${MODEL_ARGS[@]}" "$PROMPT" < /dev/null
     fi
 fi

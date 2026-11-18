@@ -39,5 +39,6 @@ def patch(bin_path):
     return True
 
 if __name__ == "__main__":
-    target = sys.argv[1] if len(sys.argv) > 1 else "/usr/local/bin/opencode-bin"
+    default_target = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opencode-bin")
+    target = sys.argv[1] if len(sys.argv) > 1 else default_target
     patch(target)

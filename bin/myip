@@ -55,8 +55,16 @@ def check_ip():
     if data.get("status") != "success":
         print("\n[!] Не удалось получить ответ из интернета.")
         if proxy:
-            print(f"    Прокси {proxy} недоступен или перехватывает TLS.")
-            print("    Отключить: proxy off    Сменить: proxy set <url>")
+            diag = core.proxy_tls_check(proxy, timeout=6)
+            if diag.get("tls_error"):
+                print(f"    Прокси перехватывает TLS: {diag.get('error', '')[:140]}")
+                print("    Смените прокси: proxy set <url>")
+            elif diag.get("reachable"):
+                print("    Прокси работает (TLS OK), но сервисы ip-api/ipify не ответили.")
+                print("    Повторите проверку: myip")
+            else:
+                print("    Прокси не отвечает (таймаут). Это не TLS-ошибка.")
+                print("    Повторите проверку позже или смените прокси: proxy set <url>")
         else:
             print("    Проверьте сетевое подключение.")
         print("=" * 58 + "\n")

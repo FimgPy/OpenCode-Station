@@ -283,9 +283,9 @@ proxy() {
 myip() {
     \/myip "$@"
 }
-ip() {
-    \/myip "$@"
-}
+# NOTE: do not shadow /usr/sbin/ip — it is a core networking utility.
+# The convenience alias below keeps the old CMD-style "IP" command working.
+alias IP=myip
 
 # Environment management commands
 env() {
@@ -380,7 +380,7 @@ alias ENV=env
 alias ENVS=envs
 alias SWITCH=switch
 alias MYIP=myip
-alias IP=ip
+alias IP=myip
 
 # Case-insensitive tab completion
 bind 'set completion-ignore-case on' 2>/dev/null || true

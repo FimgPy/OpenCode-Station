@@ -54,6 +54,16 @@ def is_wsl() -> bool:
             or bool(os.environ.get("WSL_DISTRO_NAME")))
 
 
+def is_wsl1() -> bool:
+    """WSL1 has no mount/UTS namespaces and no TUN; isolation must be user-space."""
+    if not is_wsl():
+        return False
+    release = _platform.release().lower()
+    if release.startswith("4.4."):
+        return True
+    return not os.path.exists("/dev/vsock")
+
+
 def platform_name() -> str:
     if os.name == "nt":
         return "windows"
@@ -748,10 +758,13 @@ def proxy_tls_check(proxy_url: str, timeout: int = 10) -> Dict[str, Any]:
         ("opencode", "https://opencode.ai/"),
     ]
     result: Dict[str, Any] = {"ok": False, "tls_ok": False, "error": "",
-                              "checks": [], "models_ok": False}
+                              "checks": [], "models_ok": False,
+                              "tls_error": False, "network_error": False,
+                              "reachable": False}
     for key, url in targets:
         rc, out, err = _curl([
             "--connect-timeout", "4", "--max-time", str(timeout), "-x", proxy_url,
+            "-r", "0-65535",
             "-o", os.devnull, "-w", "%{http_code}", "-H", "User-Agent: opencode/2.2.1",
             url,
         ], timeout + 3)
@@ -759,62 +772,120 @@ def proxy_tls_check(proxy_url: str, timeout: int = 10) -> Dict[str, Any]:
         item = {"name": key, "rc": rc, "http": code, "error": err.strip()[:180]}
         result["checks"].append(item)
         if rc == 0 and code.isdigit() and 100 <= int(code) < 600:
+            result["reachable"] = True
             if key == "models":
                 result["models_ok"] = True
             continue
 
-        is_tls = ("certificate" in err.lower() or "SSL" in err or
-                  "self signed" in err.lower() or rc in (35, 51, 53, 54, 58, 59, 60, 66, 77, 80, 83, 90, 91))
-        if key == "models" and not is_tls:
-            # models.opencode.ai is only a catalog fetch.  A timeout here is
-            # non-fatal for inference, while a certificate error is fatal.
-            result.setdefault("warnings", []).append(
-                f"models.opencode.ai: {err.strip()[:100] or code or 'timeout'}")
-            continue
-        result["error"] = (f"TLS/SSL: {err.strip()[:140]}" if is_tls else
-                           f"HTTP {code or '000'}: {err.strip()[:100]}")
+        low = err.lower()
+        is_tls = (rc == 60 or "certificate" in low or "self signed" in low or
+                  "unable to get local issuer" in low or "unknown ca" in low or
+                  "certificate verify" in low)
         if is_tls:
+            result["error"] = f"TLS/SSL: {err.strip()[:140]}"
             result["tls_error"] = True
-        return result
+            return result
+        # Timeouts / refused connections are not MITM.  They mean the proxy is
+        # slow or unreachable; never report them as a certificate problem.
+        result["network_error"] = True
+        result.setdefault("warnings", []).append(
+            f"{key}: {err.strip()[:100] or code or 'timeout'}")
+        continue
 
     result["ok"] = True
     result["tls_ok"] = True
     return result
 
 
-def proxy_preflight(proxy_url: str) -> Tuple[bool, str]:
+def proxy_preflight_ex(proxy_url: str) -> Dict[str, Any]:
+    """Preflight result with a clear fatal/non-fatal distinction.
+
+    Fatal (TLS interception) must drop the proxy: otherwise OpenCode aborts
+    with SELF_SIGNED_CERT_IN_CHAIN.  Timeouts are only warnings: dropping the
+    proxy there would silently send an "anonymous" environment through the
+    real IP.
+    """
     res = proxy_tls_check(proxy_url, timeout=8)
+    fatal = bool(res.get("tls_error"))
+    warnings = list(res.get("warnings", []))
+    if res.get("network_error") and res.get("error"):
+        warnings.append(res["error"])
+    return {"ok": not fatal, "fatal": fatal,
+            "error": res.get("error", ""), "warnings": warnings,
+            "checks": res.get("checks", [])}
+
+
+def proxy_preflight(proxy_url: str) -> Tuple[bool, str]:
+    res = proxy_preflight_ex(proxy_url)
     return bool(res.get("ok")), res.get("error", "")
 
 
+
 def test_proxy_connectivity(proxy_url: str, timeout: float = 6.0) -> Dict[str, Any]:
+    """Check a proxy for real OpenCode use.
+
+    Slow free proxies often time out on the ip-api geo request while still
+    being able to serve HTTPS/inference.  A geo timeout alone is therefore
+    not a failure: fall back to ipify and, if even that is slow, keep the
+    proxy when its TLS handshake to opencode.ai is clean.
+    """
     proxy_url = normalize_proxy(proxy_url)
     if not proxy_url:
         return {"success": False, "url": "", "error": "URL не указан"}
     start = time.time()
+    geo: Dict[str, Any] = {}
+    geo_error = ""
     rc, out, err = _curl([
         "--connect-timeout", "4", "--max-time", str(int(timeout)), "-x", proxy_url,
         "http://ip-api.com/json/?fields=status,country,countryCode,city,query,org",
     ], timeout + 2)
     latency = int((time.time() - start) * 1000)
-    if rc != 0 or not out:
-        return {"success": False, "url": proxy_url, "latency": latency,
-                "error": (err.strip()[:140] or "Таймаут / нет ответа")}
-    try:
-        geo = json.loads(out.strip())
-    except Exception:
-        return {"success": False, "url": proxy_url, "latency": latency,
-                "error": "Некорректный ответ IP API"}
-    if geo.get("status") != "success":
-        return {"success": False, "url": proxy_url, "latency": latency,
-                "error": geo.get("message", "IP API status fail")}
+    if rc == 0 and out:
+        try:
+            candidate = json.loads(out.strip())
+            if candidate.get("status") == "success":
+                geo = candidate
+            else:
+                geo_error = candidate.get("message", "IP API status fail")
+        except Exception:
+            geo_error = "Некорректный ответ IP API"
+    else:
+        geo_error = err.strip()[:140] or "Таймаут / нет ответа"
+
+    if not geo:
+        rc2, out2, _err2 = _curl([
+            "--connect-timeout", "4", "--max-time", str(int(timeout)), "-x", proxy_url,
+            "https://api.ipify.org?format=json",
+        ], timeout + 2)
+        ip = ""
+        if rc2 == 0 and out2:
+            try:
+                ip = json.loads(out2.strip()).get("ip", "")
+            except Exception:
+                ip = ""
+        if ip:
+            geo = {"query": ip, "country": "Неизвестно", "countryCode": "UN",
+                   "city": "", "org": ""}
+            # Resolve geo directly (not through the slow proxy).
+            rc3, out3, _err3 = _curl([
+                "--connect-timeout", "4", "--max-time", "8",
+                f"http://ip-api.com/json/{ip}?fields=status,country,countryCode,city,query,org",
+            ], 12)
+            if rc3 == 0 and out3:
+                try:
+                    direct = json.loads(out3.strip())
+                    if direct.get("status") == "success":
+                        geo.update({k: direct.get(k, geo.get(k))
+                                    for k in ("country", "countryCode", "city", "org")})
+                except Exception:
+                    pass
 
     tls = proxy_tls_check(proxy_url, timeout=max(8, int(timeout)))
     base = {
         "url": proxy_url,
-        "ip": geo.get("query"),
-        "country": geo.get("country", "Неизвестно"),
-        "country_code": geo.get("countryCode", "UN"),
+        "ip": geo.get("query", proxy_url.split("://")[-1].split(":")[0]),
+        "country": geo.get("country") or "Неизвестно",
+        "country_code": geo.get("countryCode") or "UN",
         "city": geo.get("city", ""),
         "org": geo.get("org", ""),
         "latency": latency,
@@ -827,8 +898,14 @@ def test_proxy_connectivity(proxy_url: str, timeout: float = 6.0) -> Dict[str, A
         base["success"] = False
         base["error"] = "Прокси перехватывает TLS: " + (tls.get("error") or "сертификат не доверен")
         return base
+    if not tls.get("reachable"):
+        base["success"] = False
+        base["error"] = "opencode.ai недоступен через прокси: " + (
+            tls.get("error") or "; ".join(w for w in tls.get("warnings", [])) or "таймаут")
+        return base
     base["success"] = True
     base["error"] = ""
+    base["warning"] = "" if geo else f"геолокация не определена: {geo_error}"
     return base
 
 
@@ -1429,7 +1506,9 @@ def shell_exports(env_name: str) -> str:
         "ENV_PROXY_GLOBAL": "yes" if is_global else "no",
         "ENV_OPENCODE_BIN": bin_path,
         "ENV_TTYD": find_ttyd(),
-        "ENV_ISOLATION": "unshare" if (IS_LINUX and shutil.which("unshare") and shutil.which("setpriv")) else "user",
+        "ENV_ISOLATION": "unshare" if (IS_LINUX and not is_wsl1()
+                                        and shutil.which("unshare")
+                                        and shutil.which("setpriv")) else "user",
     }
     lines = [f"export {k}={shlex.quote(str(v))}" for k, v in values.items()]
     return "\n".join(lines)
@@ -1444,10 +1523,13 @@ def main(argv: List[str]) -> int:
         print(shell_exports(argv[1] if len(argv) > 1 else ""))
         return 0
     if cmd == "proxy-preflight":
-        ok, err = proxy_preflight(argv[1] if len(argv) > 1 else "")
-        if not ok:
-            print(err)
-        return 0 if ok else 2
+        res = proxy_preflight_ex(argv[1] if len(argv) > 1 else "")
+        for warning in res.get("warnings", []):
+            print(f"warning: {warning}", file=sys.stderr)
+        if res.get("fatal"):
+            print(res.get("error", ""))
+            return 3
+        return 0
     if cmd == "platform":
         print(json.dumps({
             "platform": PLATFORM, "station_root": STATION_ROOT,

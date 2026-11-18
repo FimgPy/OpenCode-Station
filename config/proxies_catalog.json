@@ -1,38 +1,42 @@
 [
   {
-    "url": "http://161.35.70.249:80",
-    "ip": "161.35.70.249",
-    "latency": 250,
+    "url": "http://132.243.174.245:5002",
+    "ip": "132.243.174.245",
+    "latency": 3491,
+    "country": "Switzerland",
+    "country_code": "CH",
+    "city": "Rümlang",
+    "org": "Alexhost SRL",
+    "type": "HTTP",
+    "tls_ok": true,
+    "working": true,
+    "verified_model_reply": true
+  },
+  {
+    "url": "http://91.107.186.23:8081",
+    "ip": "209.38.159.236",
+    "latency": 1800,
+    "country": "Germany (exit: United States)",
+    "country_code": "DE",
+    "city": "Frankfurt am Main / Santa Clara",
+    "org": "Hetzner Online GmbH / DigitalOcean",
+    "type": "HTTP",
+    "tls_ok": true,
+    "working": true,
+    "verified_model_reply": true
+  },
+  {
+    "url": "http://103.237.102.191:11111",
+    "ip": "103.237.102.191",
+    "latency": 662,
     "country": "Germany",
     "country_code": "DE",
     "city": "Frankfurt am Main",
-    "org": "DigitalOcean, LLC",
-    "type": "HTTPS (SSL CONNECT)",
+    "org": "Franet",
+    "type": "HTTP",
+    "tls_ok": true,
     "working": true,
-    "query": "161.35.70.249"
-  },
-  {
-    "url": "http://34.105.252.3:3128",
-    "ip": "34.105.164.240",
-    "latency": 250,
-    "country": "United Kingdom",
-    "country_code": "GB",
-    "city": "London",
-    "org": "Google Cloud (europe-west2)",
-    "type": "HTTPS (SSL CONNECT)",
-    "working": true,
-    "query": "34.105.164.240"
-  },
-  {
-    "url": "http://145.220.227.67:8080",
-    "ip": "145.220.183.29",
-    "latency": 250,
-    "country": "The Netherlands",
-    "country_code": "NL",
-    "city": "Utrecht",
-    "org": "SURFnet bv",
-    "type": "HTTPS (SSL CONNECT)",
-    "working": true,
-    "query": "145.220.183.29"
+    "verified_model_reply": false,
+    "note": "TLS OK, но бесплатная квота IP часто исчерпана (429)"
   }
 ]
