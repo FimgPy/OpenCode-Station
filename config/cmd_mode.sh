@@ -9,9 +9,9 @@ fi
 # macOS/Linux: make station commands resolvable even when bin/ is not on PATH.
 case ":${PATH}:" in
     *":${STATION_BIN}:"*) ;;
-    *) export PATH="${STATION_BIN}${PATH:+:$PATH}" ;;
+    *) builtin export PATH="${STATION_BIN}${PATH:+:$PATH}" ;;
 esac
-export STATION_BIN
+builtin export STATION_BIN
 
 # Prompt generator (Displays [env] D:\path> or D:\path>)
 get_cmd_prompt() {
