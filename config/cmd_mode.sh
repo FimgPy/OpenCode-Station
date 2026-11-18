@@ -6,6 +6,12 @@ STATION_BIN="${OPENCODE_STATION_ROOT:+$OPENCODE_STATION_ROOT/bin}"
 if [ ! -d "$STATION_BIN" ]; then
     STATION_BIN="/usr/local/bin"
 fi
+# macOS/Linux: make station commands resolvable even when bin/ is not on PATH.
+case ":${PATH}:" in
+    *":${STATION_BIN}:"*) ;;
+    *) export PATH="${STATION_BIN}${PATH:+:$PATH}" ;;
+esac
+export STATION_BIN
 
 # Prompt generator (Displays [env] D:\path> or D:\path>)
 get_cmd_prompt() {

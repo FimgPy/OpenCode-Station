@@ -1,4 +1,4 @@
-# ⚡ OpenCode Station v3.1.2
+# ⚡ OpenCode Station v3.1.3
 
 > **Изолированные среды OpenCode, веб-панель управления, встроенный терминал и менеджер прокси.**
 > Две отдельные сборки: **Windows** и **macOS** (плюс Linux). Общее ядро, но разные установщики и документация.
@@ -7,7 +7,7 @@
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-blue?logo=windows)](#-windows)
 [![macOS](https://img.shields.io/badge/macOS-11%2B-black?logo=apple)](#-macos)
 [![Linux](https://img.shields.io/badge/Linux-x86__64%20%7C%20arm64-orange?logo=linux)](#-linux)
-[![Release v3.1.2](https://img.shields.io/github/v/release/FimgPy/OpenCode-Station)](https://github.com/FimgPy/OpenCode-Station/releases/tag/v3.1.2)
+[![Release v3.1.3](https://img.shields.io/github/v/release/FimgPy/OpenCode-Station)](https://github.com/FimgPy/OpenCode-Station/releases/tag/v3.1.3)
 [![License - MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
@@ -16,11 +16,11 @@
 
 | Версия | Файл | Установщик |
 |---|---|---|
-| 🪟 Windows | [OpenCode-Station-3.1.2-Windows.zip](https://github.com/FimgPy/OpenCode-Station/releases/download/v3.1.2/OpenCode-Station-3.1.2-Windows.zip) | `setup.bat` |
-| 🍎 macOS | [OpenCode-Station-3.1.2-macOS.tar.gz](https://github.com/FimgPy/OpenCode-Station/releases/download/v3.1.2/OpenCode-Station-3.1.2-macOS.tar.gz) | `install.command` |
+| 🪟 Windows | [OpenCode-Station-3.1.3-Windows.zip](https://github.com/FimgPy/OpenCode-Station/releases/download/v3.1.3/OpenCode-Station-3.1.3-Windows.zip) | `setup.bat` |
+| 🍎 macOS | [OpenCode-Station-3.1.3-macOS.tar.gz](https://github.com/FimgPy/OpenCode-Station/releases/download/v3.1.3/OpenCode-Station-3.1.3-macOS.tar.gz) | `install.command` |
 
-Контрольные суммы: [SHA256SUMS](https://github.com/FimgPy/OpenCode-Station/releases/download/v3.1.2/SHA256SUMS).
-Страница релиза: [v3.1.2](https://github.com/FimgPy/OpenCode-Station/releases/tag/v3.1.2).
+Контрольные суммы: [SHA256SUMS](https://github.com/FimgPy/OpenCode-Station/releases/download/v3.1.3/SHA256SUMS).
+Страница релиза: [v3.1.3](https://github.com/FimgPy/OpenCode-Station/releases/tag/v3.1.3).
 
 ---
 
