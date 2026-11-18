@@ -1,1 +1,2 @@
-@start "" "%~dp0start_gui.bat"
+@echo off
+start "" "%~dp0windows\start_gui.bat"

@@ -23,3 +23,6 @@ __pycache__/
 *.py[cod]
 *$py.class
 upload_to_github.bat
+
+# Platform binaries (installers fetch the correct one)
+bin/ttyd
