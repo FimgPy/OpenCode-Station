@@ -1,9 +1,9 @@
-# Готовые сборки v3.1.1
+# Готовые сборки v3.1.2
 
 | Файл | Для кого | Установщик внутри |
 |---|---|---|
-| `OpenCode-Station-3.1.1-Windows.zip` | Windows 10/11 (WSL) | `setup.bat` |
-| `OpenCode-Station-3.1.1-macOS.tar.gz` | macOS 11+ | `install.command` / `install.sh` |
+| `OpenCode-Station-3.1.2-Windows.zip` | Windows 10/11 (WSL) | `setup.bat` |
+| `OpenCode-Station-3.1.2-macOS.tar.gz` | macOS 11+ | `install.command` / `install.sh` |
 
 Контрольные суммы — в `SHA256SUMS`.
 

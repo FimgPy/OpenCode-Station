@@ -2009,19 +2009,33 @@
     }
 
     async function checkSelectedEnvIp(envName) {
-      const targetEnv = envName || selectedProxyEnv || 'default';
+      const sel = document.getElementById('proxy-env-select');
+      const targetEnv = envName || (sel && sel.value) || selectedProxyEnv || 'default';
+      selectedProxyEnv = targetEnv;
       document.getElementById('net-query').textContent = "Определение...";
-      document.getElementById('proxy-status-pill').textContent = "Проверка...";
+      const pill = document.getElementById('proxy-status-pill');
+      if (pill) {
+        pill.className = 'text-xs px-3 py-1 rounded-full font-mono bg-dark-900 text-cyan-300 border border-cyan-800';
+        pill.textContent = "Проверка...";
+      }
       try {
-        const res = await fetch(`${API_BASE}/api/proxy?env=${encodeURIComponent(targetEnv)}`);
+        const res = await fetch(`${API_BASE}/api/proxy?env=${encodeURIComponent(targetEnv)}&force=1`, {cache: 'no-store'});
         const data = await res.json();
         if (data.ip_check) {
           updateNetworkUI(data.ip_check, targetEnv);
         } else {
           document.getElementById('net-query').textContent = "Нет ответа";
+          if (pill) {
+            pill.className = 'text-xs px-3 py-1 rounded-full font-mono bg-red-950 text-red-300 border border-red-800';
+            pill.textContent = 'НЕТ ОТВЕТА';
+          }
         }
       } catch (err) {
         document.getElementById('net-query').textContent = "Ошибка сети";
+        if (pill) {
+          pill.className = 'text-xs px-3 py-1 rounded-full font-mono bg-red-950 text-red-300 border border-red-800';
+          pill.textContent = 'ОШИБКА СЕТИ';
+        }
       }
     }
 
@@ -2056,8 +2070,10 @@
           pill.textContent = 'ПРЯМОЕ СОЕДИНЕНИЕ';
         }
         if (netActive) {
-          netActive.className = 'text-gray-400';
-          netActive.textContent = 'Выключено';
+          netActive.className = 'text-amber-400';
+          netActive.textContent = data.proxy_url
+            ? `Сохранён, но выключен (${data.proxy_url})`
+            : (data.url ? `Сохранён, но выключен (${data.url})` : 'Выключено');
         }
         if (toggle) toggle.checked = false;
       }
@@ -2074,16 +2090,28 @@
       renderProxySummaryTable();
     }
 
+    function currentProxyEnv() {
+      const sel = document.getElementById('proxy-env-select');
+      return (sel && sel.value) || selectedProxyEnv || 'default';
+    }
+
     async function saveSelectedEnvProxy() {
-      const envName = selectedProxyEnv || 'default';
+      const envName = currentProxyEnv();
+      selectedProxyEnv = envName;
       const url = document.getElementById('proxy-url-input').value.trim();
       const toggle = document.getElementById('proxy-toggle-switch').checked;
+      const btn = document.querySelector('button[onclick="saveSelectedEnvProxy()"]');
+      const previousLabel = btn ? btn.innerHTML : '';
 
       if (!url && toggle) {
         showToast("Укажите URL прокси для включения", "error");
         return;
       }
 
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Проверка прокси...';
+      }
       try {
         const res = await fetch(`${API_BASE}/api/proxy/set`, {
           method: 'POST',
@@ -2095,25 +2123,36 @@
             make_global: document.getElementById('proxy-also-global-checkbox') ? document.getElementById('proxy-also-global-checkbox').checked : false
           })
         });
-        const data = await res.json();
-        if (data.success) {
+        let data = {};
+        try { data = await res.json(); } catch (e) { data = {}; }
+
+        if (res.ok && data.success) {
           showToast(`Прокси для среды [${envName}] сохранён и проверен!`, "success");
           if (data.ip_check) updateNetworkUI(data.ip_check, envName);
-          refreshAll();
-        } else {
-          showToast(`Прокси отклонён: ${data.error || 'проверка не пройдена'}`, "error");
+        } else if (res.status === 400) {
+          // The backend keeps the URL but disables the proxy when validation fails.
+          showToast(`URL сохранён, но прокси выключен: ${data.error || 'проверка не пройдена'}`, "error");
           if (data.tls_ok === false) {
             showToast("Этот прокси перехватывает TLS — OpenCode упадёт с SELF_SIGNED_CERT_IN_CHAIN", "error");
           }
-          refreshAll();
+          if (data.ip_check) updateNetworkUI(data.ip_check, envName);
+        } else {
+          showToast(`Не удалось сохранить прокси: ${data.error || ('HTTP ' + res.status)}`, "error");
         }
+        await refreshAll();
       } catch (err) {
         showToast("Ошибка сохранения прокси", "error");
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = previousLabel;
+        }
       }
     }
 
     async function toggleSelectedEnvProxy(enabled) {
-      const envName = selectedProxyEnv || 'default';
+      const envName = currentProxyEnv();
+      selectedProxyEnv = envName;
       const url = document.getElementById('proxy-url-input').value.trim();
 
       if (enabled && !url) {
@@ -2128,14 +2167,19 @@
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({ env: envName, url: url, enable: enabled })
         });
-        const data = await res.json();
-        if (data.success) {
+        let data = {};
+        try { data = await res.json(); } catch (e) { data = {}; }
+        if (res.ok && data.success) {
           showToast(`Прокси для [${envName}] ${enabled ? 'включен' : 'отключен'}`, "info");
           if (data.ip_check) updateNetworkUI(data.ip_check, envName);
-          refreshAll();
+        } else {
+          showToast(data.error || 'Прокси не прошёл проверку', "error");
+          document.getElementById('proxy-toggle-switch').checked = !enabled;
         }
+        await refreshAll();
       } catch (err) {
         showToast("Ошибка переключения прокси", "error");
+        document.getElementById('proxy-toggle-switch').checked = !enabled;
       }
     }
 

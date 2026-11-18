@@ -52,9 +52,7 @@ _TERMINAL_STARTED = False
 def _cached_ip(env_name, force=False):
     now = time.time()
     cached = _IP_CACHE.get(env_name)
-    if cached and not force:
-        return cached["data"]
-    if cached and now - cached["time"] < _IP_CACHE_TTL:
+    if cached and not force and now - cached["time"] < _IP_CACHE_TTL:
         return cached["data"]
     data = core.check_env_ip(env_name)
     _IP_CACHE[env_name] = {"data": data, "time": now}
@@ -596,6 +594,7 @@ class GUIRequestHandler(BaseHTTPRequestHandler):
                 info["proxy_enabled"] = False
                 core.save_manifest(manifest)
                 core.write_proxy_config(info.get("home", ""), url, False)
+                _IP_CACHE.pop(env_name, None)
                 self.send_json({
                     "success": False,
                     "error": check.get("error", "Прокси не прошёл проверку"),
@@ -608,6 +607,7 @@ class GUIRequestHandler(BaseHTTPRequestHandler):
         info["proxy_enabled"] = enable
         core.save_manifest(manifest)
         core.write_proxy_config(info.get("home", ""), url, enable)
+        _IP_CACHE.pop(env_name, None)
         if enable and url and core.is_socks(url):
             core.start_bridge(env_name, url)
         else:

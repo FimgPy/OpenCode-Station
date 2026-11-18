@@ -31,7 +31,7 @@ import zlib
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 APP_NAME = "OpenCode Station"
-APP_VERSION = "3.1.1"
+APP_VERSION = "3.1.2"
 DEFAULT_NO_PROXY = "127.0.0.1,localhost,::1,local.home"
 
 # ---------------------------------------------------------------------------
@@ -767,11 +767,17 @@ def proxy_tls_check(proxy_url: str, timeout: int = 10) -> Dict[str, Any]:
         rc, out, err = _curl([
             "--connect-timeout", "4", "--max-time", str(timeout), "-x", proxy_url,
             "-r", "0-65535",
-            "-o", os.devnull, "-w", "%{http_code}", "-H", "User-Agent: opencode/2.2.1",
+            "-o", os.devnull, "-w", "%{http_code} %{time_connect}", "-H", "User-Agent: opencode/2.2.1",
             url,
         ], timeout + 3)
-        code = out.strip()
-        item = {"name": key, "rc": rc, "http": code, "error": err.strip()[:180]}
+        parts = (out or "").split()
+        code = parts[0] if parts else ""
+        try:
+            t_connect = float(parts[1]) if len(parts) > 1 else 0.0
+        except ValueError:
+            t_connect = 0.0
+        item = {"name": key, "rc": rc, "http": code, "connect": t_connect,
+                "error": err.strip()[:180]}
         result["checks"].append(item)
         if rc == 0 and code.isdigit() and 100 <= int(code) < 600:
             result["reachable"] = True
@@ -787,8 +793,13 @@ def proxy_tls_check(proxy_url: str, timeout: int = 10) -> Dict[str, Any]:
             result["error"] = f"TLS/SSL: {err.strip()[:140]}"
             result["tls_error"] = True
             return result
-        # Timeouts / refused connections are not MITM.  They mean the proxy is
-        # slow or unreachable; never report them as a certificate problem.
+        # Timeouts / refused connections are not MITM.  A positive connect time
+        # means the proxy tunnel (TCP + CONNECT + TLS) was established and only
+        # the response was slow, so the proxy is usable for OpenCode.
+        if t_connect > 0:
+            result["reachable"] = True
+            result.setdefault("warnings", []).append(
+                f"{key}: tunnel connected in {t_connect:.1f}s, response slow")
         result["network_error"] = True
         result.setdefault("warnings", []).append(
             f"{key}: {err.strip()[:100] or code or 'timeout'}")
