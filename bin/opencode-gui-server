@@ -1,853 +1,162 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-OpenCode Workstation GUI Server & REST API v2.6
-Сделано Антоном Ковалкиным все права защищены.
+OpenCode Station GUI / REST API v3.0 (portable).
+
+Runs on Linux, WSL and macOS.  On Windows the launchers execute this server
+inside WSL; the module itself has no hard-coded /var/envs, /mnt/d or
+/usr/local paths.
+
+Made by Anton Kovalkin. All rights reserved.
 """
-import os
-import io
-import sys
-import json
-import uuid
-import time
-import shutil
+import argparse
 import base64
-import random
-import zipfile
-import tempfile
+import concurrent.futures
 import datetime
+import io
+import json
+import os
+import shutil
+import signal
 import subprocess
-from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
-import urllib.request
-import urllib.error
+import sys
+import threading
+import time
+import urllib.parse
+import zipfile
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
 
-PROVIDER_CONFIG_FILE = "/var/envs/provider_config.json"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import station_core as core  # noqa: E402
 
-DEFAULT_PROVIDER_CONFIG = {
-    "provider": "opencode",
-    "model": "",
-    "apiKey": "",
-    "updated_at": ""
-}
-
-def load_provider_config():
-    if os.path.exists(PROVIDER_CONFIG_FILE):
-        try:
-            with open(PROVIDER_CONFIG_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return dict(DEFAULT_PROVIDER_CONFIG)
-
-def save_provider_config(cfg):
-    try:
-        os.makedirs(os.path.dirname(PROVIDER_CONFIG_FILE), exist_ok=True)
-        with open(PROVIDER_CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=2)
-    except Exception:
-        pass
-
-def generate_opencode_json(provider_cfg):
-    prov = provider_cfg.get("provider", "opencode")
-    model = provider_cfg.get("model", "").strip()
-    api_key = provider_cfg.get("apiKey", "").strip()
-
-    cfg = {
-        "$schema": "https://opencode.ai/config.json"
-    }
-    if model:
-        cfg["model"] = model
-
-    if prov == "google" and api_key:
-        cfg["providers"] = {
-            "google": {
-                "settings": {
-                    "apiKey": api_key
-                }
-            }
-        }
-    elif prov == "groq" and api_key:
-        cfg["providers"] = {
-            "groq": {
-                "settings": {
-                    "apiKey": api_key
-                }
-            }
-        }
-    elif prov == "openrouter" and api_key:
-        cfg["providers"] = {
-            "openrouter": {
-                "settings": {
-                    "apiKey": api_key
-                }
-            }
-        }
-    elif prov == "deepseek" and api_key:
-        cfg["providers"] = {
-            "deepseek": {
-                "settings": {
-                    "apiKey": api_key
-                }
-            }
-        }
-    elif prov == "opencode":
-        pass
-
-    return cfg
-
-def apply_provider_to_env(env_name, env_info, provider_cfg):
-    home_dir = env_info.get("home", f"/var/envs/{env_name}/home")
-    ws_dir = env_info.get("workspace", f"/var/envs/{env_name}/workspace")
-    cfg = generate_opencode_json(provider_cfg)
-
-    # 1. Config in home
-    cfg_dir = os.path.join(home_dir, ".config", "opencode")
-    os.makedirs(cfg_dir, exist_ok=True)
-    with open(os.path.join(cfg_dir, "opencode.json"), "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2)
-
-    # 2. Config in workspace only if custom settings exist
-    if ws_dir and os.path.exists(ws_dir):
-        ws_cfg = os.path.join(ws_dir, ".opencode")
-        if "providers" in cfg or "model" in cfg:
-            os.makedirs(ws_cfg, exist_ok=True)
-            with open(os.path.join(ws_cfg, "opencode.json"), "w", encoding="utf-8") as f:
-                json.dump(cfg, f, indent=2)
-        else:
-            old_f = os.path.join(ws_cfg, "opencode.json")
-            if os.path.exists(old_f):
-                try: os.remove(old_f)
-                except Exception: pass
-
-    # 3. Model.json in state
-    state_dir = os.path.join(home_dir, ".local", "state", "opencode")
-    os.makedirs(state_dir, exist_ok=True)
-    model_id = provider_cfg.get("model", "").strip()
-    prov_id = provider_cfg.get("provider", "opencode")
-    clean_model_id = model_id.split("/")[-1] if model_id else ""
-
-    model_json_path = os.path.join(state_dir, "model.json")
-    if clean_model_id:
-        with open(model_json_path, "w", encoding="utf-8") as f:
-            json.dump({
-                "recent": [{"providerID": prov_id, "modelID": clean_model_id}],
-                "favorite": [{"providerID": prov_id, "modelID": clean_model_id}],
-                "variant": {}
-            }, f, indent=2)
-    else:
-        # DO NOT force any default model like big-pickle! Leave environment clean.
-        # Сделано Антоном Ковалкиным все права защищены.
-        if os.path.exists(model_json_path):
-            try: os.remove(model_json_path)
-            except Exception: pass
-
-    # 4. Upsell suppress
-    tui_dir = os.path.join(home_dir, ".local", "state", "opencode", "latest", "tui")
-    os.makedirs(tui_dir, exist_ok=True)
-    with open(os.path.join(tui_dir, "go-upsell.json"), "w", encoding="utf-8") as f:
-        json.dump({"lastSeenAt": 9999999999999, "dontShow": True}, f, indent=2)
-
-    # 5. Remove shared service daemon files for full environment isolation
-    for p in [os.path.join(state_dir, "service.json"), os.path.join(cfg_dir, "service.json")]:
-        if os.path.exists(p):
-            try: os.remove(p)
-            except Exception: pass
-
-    # 6. Environment variables in .bashrc
-    bashrc_path = os.path.join(home_dir, ".bashrc")
-    if os.path.exists(bashrc_path):
-        try:
-            with open(bashrc_path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-            clean_lines = [l for l in lines if not any(k in l for k in ["_API_KEY", "OPENCODE_MODEL"])]
-            api_key = provider_cfg.get("apiKey", "").strip()
-            prov = provider_cfg.get("provider", "")
-            if api_key:
-                if prov == 'google':
-                    clean_lines.append('export GEMINI_API_KEY="' + api_key + '"\nexport GOOGLE_API_KEY="' + api_key + '"\n')
-                elif prov == 'groq':
-                    clean_lines.append('export GROQ_API_KEY="' + api_key + '"\n')
-                elif prov == 'openrouter':
-                    clean_lines.append('export OPENROUTER_API_KEY="' + api_key + '"\n')
-                elif prov == 'deepseek':
-                    clean_lines.append('export DEEPSEEK_API_KEY="' + api_key + '"\n')
-            with open(bashrc_path, "w", encoding="utf-8") as f:
-                f.writelines(clean_lines)
-        except Exception:
-            pass
-
-def test_provider_api(provider, api_key, model):
-    start_t = time.time()
-    try:
-        if provider == "google":
-            clean_m = model.replace("google/", "") if model else "gemini-2.5-flash"
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_m}:generateContent?key={api_key}"
-            body = json.dumps({"contents": [{"parts": [{"text": "hi"}]}]}).encode("utf-8")
-            req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
-        elif provider == "groq":
-            clean_m = model.replace("groq/", "") if model else "llama-3.3-70b-versatile"
-            url = "https://api.groq.com/openai/v1/chat/completions"
-            body = json.dumps({"model": clean_m, "messages": [{"role": "user", "content": "hi"}]}).encode("utf-8")
-            req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"})
-        elif provider == "openrouter":
-            clean_m = model.replace("openrouter/", "") if model else "meta-llama/llama-3.3-70b-instruct:free"
-            url = "https://openrouter.ai/api/v1/chat/completions"
-            body = json.dumps({"model": clean_m, "messages": [{"role": "user", "content": "hi"}]}).encode("utf-8")
-            req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"})
-        elif provider == "deepseek":
-            clean_m = model.replace("deepseek/", "") if model else "deepseek-chat"
-            url = "https://api.deepseek.com/chat/completions"
-            body = json.dumps({"model": clean_m, "messages": [{"role": "user", "content": "hi"}]}).encode("utf-8")
-            req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"})
-        elif provider == "opencode":
-            url = "https://opencode.ai/inference/openai/v1/chat/completions"
-            body = json.dumps({"model": "deepseek-v4.1-flash-free", "messages": [{"role": "user", "content": "hi"}]}).encode("utf-8")
-            req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json", "Authorization": "Bearer public"})
-        else:
-            return False, "Неизвестный провайдер"
-
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            latency = int((time.time() - start_t) * 1000)
-            return True, f"Успешно подключено! Задержка: {latency} мс"
-    except urllib.error.HTTPError as e:
-        err_body = e.read().decode("utf-8", errors="ignore")
-        if "FreeUsageLimitError" in err_body:
-            return False, "429: Лимит бесплатных запросов OpenCode исчерпан на сегодня (сброс в 03:00 МСК)"
-        return False, f"Ошибка {e.code}: {err_body[:100]}"
-    except Exception as e:
-        return False, f"Ошибка подключения: {str(e)}"
-
-def seed_env_opencode_config(home_dir, ws_dir=None, env_name=None):
-    try:
-        pcfg = load_provider_config()
-        env_info = {"home": home_dir, "workspace": ws_dir or ""}
-        apply_provider_to_env(env_name or "default", env_info, pcfg)
-    except Exception:
-        pass
-
-PORT = 7682
-HOST = "0.0.0.0"
-
-ENVS_DIR = "/var/envs"
-MANIFEST_FILE = os.path.join(ENVS_DIR, "manifest.json")
-WIN_PROJECTS_DIR = "/mnt/d/OpenCode-Station_Package/workspace"
-if not os.path.exists("/mnt/d"):
-    WIN_PROJECTS_DIR = "/mnt/c/OpenCode-Station_Package/workspace"
-
-RANDOM_NAMES = [
-    "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta",
-    "omega", "nexus", "prism", "orbit", "quantum", "stellar", "matrix", "vector",
-    "phoenix", "titan", "aurora", "nova", "cyber", "shadow", "vortex", "zenith"
+PORT = int(os.environ.get("OPENCODE_STATION_PORT", "7682"))
+HOST = os.environ.get("OPENCODE_STATION_HOST", "0.0.0.0")
+TERMINAL_PORT = int(os.environ.get("OPENCODE_STATION_TERMINAL_PORT", "7681"))
+APP_HTML = os.path.join(core.STATION_ROOT, "terminal.html")
+APP_HTML_FALLBACKS = [
+    "/usr/local/share/opencode_gui/index.html",
+    "/usr/local/terminal.html",
 ]
 
-def to_win_path(p):
-    p = os.path.abspath(p)
-    if p.startswith("/mnt/d"):
-        return ("D:" + p[len("/mnt/d"):]).replace("/", "\\")
-    elif p.startswith("/mnt/c"):
-        return ("C:" + p[len("/mnt/c"):]).replace("/", "\\")
-    elif p.startswith("/home/dev/workspace/default"):
-        return ("D:\\OpenCode-Station_Package\\workspace\\default" + p[len("/home/dev/workspace/default"):]).replace("/", "\\")
-    elif p.startswith("/home/dev/workspace/default"):
-        return ("D:\\OpenCode-Station_Package\\workspace" + p[len("/home/dev/workspace/default"):]).replace("/", "\\")
-    elif p.startswith("/var/envs"):
-        return ("\\\\wsl.localhost\\Ubuntu" + p).replace("/", "\\")
-    elif p.startswith("/home/dev"):
-        return ("\\\\wsl.localhost\\Ubuntu" + p).replace("/", "\\")
-    else:
-        return ("\\\\wsl.localhost\\Ubuntu" + p).replace("/", "\\")
+_MANIFEST_LOCK = threading.RLock()
+_IP_CACHE = {}
+_IP_CACHE_TTL = 30.0
+_TERMINAL_STARTED = False
 
-def to_linux_path(p):
-    p = p.strip().strip("'\"")
-    if p.lower() in ["d", "d:", "d:\\opencode-station_package/workspace", "d:/opencode-station_package/workspace"]:
-        return "/mnt/d/OpenCode-Station_Package/workspace"
-    if len(p) >= 2 and p[1] == ':':
-        drive = p[0].lower()
-        rest = p[2:].replace("\\", "/").lstrip("/")
-        return f"/mnt/{drive}/{rest}"
-    p = p.replace("\\", "/")
-    return os.path.abspath(os.path.expanduser(p))
 
-def get_env_sessions(home_dir):
-    db_path = os.path.join(home_dir, ".local/share/opencode/opencode.db")
-    if not os.path.exists(db_path):
-        return []
-    import sqlite3
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
-            tmp_path = tmp.name
-        shutil.copy2(db_path, tmp_path)
-        con = sqlite3.connect(tmp_path)
-        cur = con.cursor()
-        rows = cur.execute("SELECT id, title, directory, time_updated FROM session_v2 WHERE time_archived IS NULL ORDER BY time_updated DESC LIMIT 15").fetchall()
-        con.close()
-        os.remove(tmp_path)
-        res = []
-        for r in rows:
-            res.append({
-                "id": r[0],
-                "title": r[1] or "Сессия OpenCode",
-                "directory": r[2] or "",
-                "time_updated": r[3]
-            })
-        return res
-    except Exception:
-        return []
+# ---------------------------------------------------------------------------
+# Status helpers
+# ---------------------------------------------------------------------------
 
-def ensure_manifest():
-    os.makedirs(ENVS_DIR, exist_ok=True)
-    if not os.path.exists(MANIFEST_FILE):
-        default_mid = "a0a98738b38eea3cc372b5ad3152fd55"
-        try:
-            with open("/etc/machine-id", "r") as f:
-                default_mid = f.read().strip()
-        except Exception:
-            pass
-
-        data = {
-            "active": "default",
-            "environments": {
-                "default": {
-                    "name": "default",
-                    "hostname": "workstation-node-714",
-                    "machine_id": default_mid,
-                    "home": "/home/dev",
-                    "workspace": "/home/dev/workspace/default",
-                    "workspace_win": "D:\\OpenCode-Station_Package\\workspace\\default",
-                    "proxy_url": "",
-                    "proxy_enabled": False,
-                    "created_at": "2026-10-29 21:00:00",
-                    "description": "Основная среда по умолчанию"
-                }
-            }
-        }
-        with open(MANIFEST_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        return data
-    else:
-        try:
-            with open(MANIFEST_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            envs = data.get("environments", {})
-            updated = False
-            for name, info in envs.items():
-                if "proxy_url" not in info:
-                    info["proxy_url"] = ""
-                    updated = True
-                if "proxy_enabled" not in info:
-                    info["proxy_enabled"] = False
-                    updated = True
-                if name == "default":
-                    if info.get("workspace") == "/mnt/d/OpenCode-Station_Package/workspace":
-                        info["workspace"] = "/home/dev/workspace/default"
-                        info["workspace_win"] = "D:\\OpenCode-Station_Package\\workspace"
-                        updated = True
-                else:
-                    if info.get("workspace", "").startswith("/mnt/d/"):
-                        info["workspace"] = f"/var/envs/{name}/workspace"
-                        info["workspace_win"] = f"D:\\OpenCode-Station_Package\\workspace\\{name}"
-                        updated = True
-            if updated:
-                with open(MANIFEST_FILE, "w", encoding="utf-8") as f:
-                    json.dump(data, f, indent=2, ensure_ascii=False)
-            return data
-        except Exception:
-            return {"active": "default", "environments": {}}
-
-def save_manifest(data):
-    with open(MANIFEST_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-
-GLOBAL_PROXY_FILE = "/var/envs/global_proxy.json"
-PROXIES_CATALOG_FILE = "/var/envs/proxies_catalog.json"
-PACKAGE_CATALOG_FILE = "/mnt/d/OpenCode-Station_Package/config/proxies_catalog.json"
-
-def get_global_proxy():
-    if os.path.exists(GLOBAL_PROXY_FILE):
-        try:
-            with open(GLOBAL_PROXY_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {"enabled": False, "url": ""}
-
-def set_global_proxy(url, enabled=True, apply_to_all_envs=True):
-    url = (url or "").strip()
-    if url and "://" not in url:
-        url = f"http://{url}"
-    enabled = bool(enabled)
-    cfg = {"enabled": enabled, "url": url}
-    try:
-        os.makedirs(os.path.dirname(GLOBAL_PROXY_FILE), exist_ok=True)
-        with open(GLOBAL_PROXY_FILE, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=2, ensure_ascii=False)
-    except Exception:
-        pass
-
-    manifest = ensure_manifest()
-    manifest["global_proxy"] = cfg
-    if apply_to_all_envs:
-        for ename, einfo in manifest.get("environments", {}).items():
-            einfo["proxy_url"] = url
-            einfo["proxy_enabled"] = enabled
-            h = einfo.get("home", "/home/dev")
-            cfg_file = os.path.join(h, ".proxy_config")
-            try:
-                state = "yes" if enabled else "no"
-                with open(cfg_file, "w") as f:
-                    f.write(f'PROXY_ENABLED="{state}"\nPROXY_URL="{url}"\n')
-            except Exception:
-                pass
-    save_manifest(manifest)
-
-    prof_file = "/etc/profile.d/global_proxy.sh"
-    try:
-        if enabled and url:
-            with open(prof_file, "w") as f:
-                f.write(f"""# Global proxy configuration
-# Сделано Антоном Ковалкиным все права защищены.
-export HTTP_PROXY="{url}"
-export HTTPS_PROXY="{url}"
-export http_proxy="{url}"
-export https_proxy="{url}"
-export ALL_PROXY="{url}"
-export all_proxy="{url}"
-export NO_PROXY="127.0.0.1,localhost,::1"
-export no_proxy="127.0.0.1,localhost,::1"
-""")
-        else:
-            if os.path.exists(prof_file):
-                os.remove(prof_file)
-    except Exception:
-        pass
-    return cfg
-
-def get_proxies_catalog():
-    for p in [PROXIES_CATALOG_FILE, PACKAGE_CATALOG_FILE]:
-        if os.path.exists(p):
-            try:
-                with open(p, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                pass
-    return []
-
-def test_proxy_connectivity(proxy_url, timeout=3.5):
-    import urllib.request, time
-    proxy_url = (proxy_url or "").strip()
-    if not proxy_url:
-        return {"success": False, "error": "URL не указан"}
-    if "://" not in proxy_url:
-        proxy_url = f"http://{proxy_url}"
-    try:
-        t0 = time.time()
-        proxy_h = urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url})
-        opener = urllib.request.build_opener(proxy_h)
-        req = urllib.request.Request("http://ip-api.com/json/?fields=status,country,countryCode,city,query,org", headers={"User-Agent": "curl/7.88.1"})
-        with opener.open(req, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode())
-            lat = int((time.time() - t0) * 1000)
-            if data.get("status") == "success":
-                return {
-                    "success": True,
-                    "url": proxy_url,
-                    "ip": data.get("query"),
-                    "country": data.get("country", "Неизвестно"),
-                    "country_code": data.get("countryCode", "UN"),
-                    "city": data.get("city", ""),
-                    "org": data.get("org", ""),
-                    "latency": lat
-                }
-            return {"success": False, "url": proxy_url, "error": data.get("message", "IP API status fail")}
-    except Exception as e:
-        return {"success": False, "url": proxy_url, "error": str(e)}
-
-def create_env(name=None):
-    data = ensure_manifest()
-    envs = data.get("environments", {})
-    if not name:
-        cand = [n for n in RANDOM_NAMES if n not in envs]
-        name = f"{random.choice(cand) if cand else 'node'}-{random.randint(100, 999)}"
-    name = "".join(c for c in name if c.isalnum() or c in "-_").lower()
-    if not name or name in envs:
-        return False, f"Среда '{name}' уже существует или некорректное имя"
-
-    mid = uuid.uuid4().hex
-    host = f"node-{name}-{uuid.uuid4().hex[:4]}"
-    env_path = os.path.join(ENVS_DIR, name)
-    env_home = os.path.join(env_path, "home")
-    env_ws = os.path.join(env_path, "workspace")
-    win_ws = f"D:\\OpenCode-Station_Package\\workspace\\{name}"
-
-    os.makedirs(env_path, exist_ok=True)
-    os.makedirs(env_home, exist_ok=True)
-    os.makedirs(env_ws, exist_ok=True)
-
-    with open(os.path.join(env_path, "machine-id"), "w") as f:
-        f.write(f"{mid}\n")
-    with open(os.path.join(env_path, "hostname"), "w") as f:
-        f.write(f"{host}\n")
-
-    cfg_dir = os.path.join(env_home, ".config", "opencode")
-    os.makedirs(cfg_dir, exist_ok=True)
-    with open(os.path.join(cfg_dir, "INSTRUCTIONS.md"), "w", encoding="utf-8") as f:
-        f.write(f"# Среда: {name}\n* Machine ID: {mid}\n* Hostname: {host}\n* Сделано Антоном Ковалкиным все права защищены.\n")
-
-    ws_link = os.path.join(env_home, "workspace")
-    try:
-        if os.path.islink(ws_link) or os.path.exists(ws_link):
-            os.remove(ws_link)
-        os.symlink(env_ws, ws_link)
-    except Exception:
-        pass
-
-    with open(os.path.join(env_home, ".bashrc"), "w", encoding="utf-8") as f:
-        f.write(f"""export OPENCODE_ENV="{name}"
-export HOME="{env_home}"
-export XDG_DATA_HOME="{env_home}/.local/share"
-export XDG_CONFIG_HOME="{env_home}/.config"
-export XDG_STATE_HOME="{env_home}/.local/state"
-export XDG_CACHE_HOME="{env_home}/.cache"
-if [ -f "$HOME/.proxy_config" ]; then . "$HOME/.proxy_config"; fi
-if [ -f /etc/profile.d/cmd_mode.sh ]; then . /etc/profile.d/cmd_mode.sh; fi
-cd "{env_ws}" 2>/dev/null || true
-""")
-
-    readme = os.path.join(env_ws, "README.md")
-    if not os.path.exists(readme):
-        with open(readme, "w", encoding="utf-8") as f:
-            f.write(f"# Проект среды {name} (Linux Workspace)\n* Папка: `{env_ws}`\n* Machine ID: `{mid}`\n* Сделано Антоном Ковалкиным все права защищены.\n")
-
-    try:
-        subprocess.run(["chown", "-R", "1000:1000", env_path], capture_output=True)
-    except Exception:
-        pass
-
-    seed_env_opencode_config(env_home, env_ws, name)
-    try:
-        with open("/etc/machine-id", "w") as f:
-            f.write(f"{mid}\n")
-        with open("/var/lib/dbus/machine-id", "w") as f:
-            f.write(f"{mid}\n")
-    except Exception:
-        pass
-    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    gp = get_global_proxy()
-    gp_url = gp.get("url", "")
-    gp_enabled = gp.get("enabled", False)
-    if gp_enabled and gp_url:
-        p_url = gp_url
-        p_enabled = True
-        try:
-            with open(os.path.join(env_home, ".proxy_config"), "w") as f:
-                f.write(f'PROXY_ENABLED="yes"\nPROXY_URL="{p_url}"\n')
-        except Exception:
-            pass
-    else:
-        p_url = ""
-        p_enabled = False
-        try:
-            with open(os.path.join(env_home, ".proxy_config"), "w") as f:
-                f.write('PROXY_ENABLED="no"\nPROXY_URL=""\n')
-        except Exception:
-            pass
-
-    envs[name] = {
-        "name": name,
-        "hostname": host,
-        "machine_id": mid,
-        "home": env_home,
-        "workspace": env_ws,
-        "workspace_win": win_ws,
-        "proxy_url": p_url,
-        "proxy_enabled": p_enabled,
-        "created_at": now_str,
-        "description": f"Анонимная изолированная среда {name}"
-    }
-    save_manifest(data)
-    set_active_env(name)
-    return True, envs[name]
-
-def reset_env(name):
-    data = ensure_manifest()
-    envs = data.get("environments", {})
-    if name not in envs:
-        return False, "Среда не найдена"
-
-    new_mid = uuid.uuid4().hex
-    new_host = f"node-{name}-{uuid.uuid4().hex[:4]}"
-
-    if name == "default":
-        for d in ["/home/dev/.cache", "/home/dev/.local/share/opencode", "/var/envs/default"]:
-            if os.path.exists(d):
-                shutil.rmtree(d, ignore_errors=True)
-        envs["default"]["machine_id"] = new_mid
-        envs["default"]["hostname"] = new_host
-        save_manifest(data)
-        try:
-            with open("/etc/machine-id", "w") as f:
-                f.write(f"{new_mid}\n")
-            with open("/var/lib/dbus/machine-id", "w") as f:
-                f.write(f"{new_mid}\n")
-        except Exception:
-            pass
-        return True, {"message": "Кэш среды default очищен, паспорт обновлен", "name": "default", "machine_id": new_mid, "hostname": new_host}
-    else:
-        env_path = os.path.join(ENVS_DIR, name)
-        with open(os.path.join(env_path, "machine-id"), "w") as f:
-            f.write(f"{new_mid}\n")
-        with open(os.path.join(env_path, "hostname"), "w") as f:
-            f.write(f"{new_host}\n")
-
-        home = envs[name]["home"]
-        for sub in [".cache", ".local", ".config/opencode"]:
-            fp = os.path.join(home, sub)
-            if os.path.exists(fp):
-                shutil.rmtree(fp, ignore_errors=True)
-        os.makedirs(os.path.join(home, ".config", "opencode"), exist_ok=True)
-
-        envs[name]["machine_id"] = new_mid
-        envs[name]["hostname"] = new_host
-        save_manifest(data)
-        return True, {"machine_id": new_mid, "hostname": new_host, "name": name}
-
-def delete_env(name, delete_workspace=False):
-    data = ensure_manifest()
-    envs = data.get("environments", {})
-    if name not in envs:
-        return False, "Среда не найдена"
-    
-    info = envs[name]
-
-    # 1. Clean environment state and cache
-    if name == "default":
-        for p in ["/home/dev/.local/share/opencode", "/home/dev/.config/opencode", "/home/dev/.cache/opencode", "/var/envs/default"]:
-            if os.path.exists(p):
-                try:
-                    if os.path.isdir(p):
-                        shutil.rmtree(p, ignore_errors=True)
-                    else:
-                        os.remove(p)
-                except Exception:
-                    pass
-    else:
-        env_path = os.path.join(ENVS_DIR, name)
-        if os.path.exists(env_path):
-            shutil.rmtree(env_path, ignore_errors=True)
-
-    # 2. Delete workspace directories if requested
-    if delete_workspace:
-        if name == "default":
-            for ws in ["/home/dev/workspace/default", "/mnt/d/OpenCode-Station_Package/workspace/default"]:
-                if os.path.exists(ws):
-                    try:
-                        shutil.rmtree(ws, ignore_errors=True)
-                    except Exception:
-                        pass
-        else:
-            ws_paths = [info.get("workspace"), f"/mnt/d/OpenCode-Station_Package/workspace/{name}", f"/var/envs/{name}/workspace"]
-            for ws in ws_paths:
-                if ws and os.path.exists(ws):
-                    try:
-                        shutil.rmtree(ws, ignore_errors=True)
-                    except Exception:
-                        pass
-
-    # 3. Remove from manifest and select new active
-    del envs[name]
-    if data.get("active") == name:
-        remaining = list(envs.keys())
-        data["active"] = remaining[0] if remaining else ""
-    save_manifest(data)
-    return True, f"Среда '{name}' успешно удалена"
-
-def purge_envs():
-    data = ensure_manifest()
-    envs = data.get("environments", {})
-    to_delete = [n for n in list(envs.keys()) if n != "default"]
-    for name in to_delete:
-        env_path = os.path.join(ENVS_DIR, name)
-        if os.path.exists(env_path):
-            shutil.rmtree(env_path, ignore_errors=True)
-        del envs[name]
-    data["active"] = "default"
-    save_manifest(data)
-    return True, f"Удалено дополнительных сред: {len(to_delete)}"
-
-def set_active_env(name):
-    data = ensure_manifest()
-    envs = data.get("environments", {})
-    if name not in envs:
-        return False, f"Среда '{name}' не существует"
-    data["active"] = name
-    save_manifest(data)
-
-    # Dynamically apply machine-id to WSL
-    mid = envs[name].get("machine_id", "")
-    if mid:
-        try:
-            with open("/etc/machine-id", "w") as f:
-                f.write(f"{mid}\n")
-            with open("/var/lib/dbus/machine-id", "w") as f:
-                f.write(f"{mid}\n")
-        except Exception:
-            pass
-
-    # Synchronize proxy settings to default /home/dev/.proxy_config so any shell immediately uses it
-    env_home = envs[name].get("home", "/home/dev")
-    env_proxy = os.path.join(env_home, ".proxy_config")
-    dev_proxy = "/home/dev/.proxy_config"
-    if os.path.exists(env_proxy):
-        try:
-            shutil.copy2(env_proxy, dev_proxy)
-        except Exception:
-            pass
-    elif os.path.exists(dev_proxy):
-        try:
-            os.remove(dev_proxy)
-        except Exception:
-            pass
-
-    try:
-        subprocess.run(["killall", "-9", "opencode-bin"], capture_output=True)
-    except Exception:
-        pass
-    return True, f"Активная среда переключена на '{name}'"
-
-def get_dir_contents(path):
-    path = os.path.abspath(os.path.expanduser(path))
-    if not os.path.exists(path):
-        return []
-    items = []
-    try:
-        for entry in os.scandir(path):
-            try:
-                st = entry.stat(follow_symlinks=False)
-                is_dir = entry.is_dir(follow_symlinks=False)
-                is_link = entry.is_symlink()
-                mtime = datetime.datetime.fromtimestamp(st.st_mtime).strftime("%d.%m.%Y %H:%M")
-                size = st.st_size if not is_dir else 0
-                items.append({
-                    "name": entry.name,
-                    "path": entry.path,
-                    "win_path": to_win_path(entry.path),
-                    "is_dir": is_dir,
-                    "is_link": is_link,
-                    "size": size,
-                    "mtime": mtime,
-                    "ext": os.path.splitext(entry.name)[1].lower() if not is_dir else ""
-                })
-            except Exception:
-                pass
-    except Exception:
-        pass
-    items.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
-    return items
-
-IP_CACHE = {}
-
-def get_cached_env_ip(env_name=None, force=False):
-    manifest = ensure_manifest()
-    envs = manifest.get("environments", {})
-    if not env_name or env_name not in envs:
-        env_name = manifest.get("active", "default")
-    
+def _cached_ip(env_name, force=False):
     now = time.time()
-    cached = IP_CACHE.get(env_name)
-    if not force and cached and (now - cached.get("_time", 0) < 60):
+    cached = _IP_CACHE.get(env_name)
+    if cached and not force:
         return cached["data"]
-    
-    info = envs.get(env_name, {})
-    proxy_url = info.get("proxy_url", "")
-    proxy_enabled = info.get("proxy_enabled", False)
-    
-    if not force:
-        if cached:
-            return cached["data"]
-        return {
-            "status": "success",
-            "query": "Нажмите 'Проверить IP'",
-            "country": "Определение по клику",
-            "city": "",
-            "org": "",
-            "proxy_active": proxy_enabled and bool(proxy_url),
-            "proxy_url": proxy_url,
-            "env": env_name
-        }
-    
-    data = check_env_ip(env_name)
-    IP_CACHE[env_name] = {"data": data, "_time": now}
+    if cached and now - cached["time"] < _IP_CACHE_TTL:
+        return cached["data"]
+    data = core.check_env_ip(env_name)
+    _IP_CACHE[env_name] = {"data": data, "time": now}
     return data
 
-def check_env_ip(env_name=None):
-    manifest = ensure_manifest()
-    envs = manifest.get("environments", {})
-    if not env_name or env_name not in envs:
-        env_name = manifest.get("active", "default")
 
-    info = envs.get(env_name, {})
-    proxy_url = info.get("proxy_url", "")
-    proxy_enabled = info.get("proxy_enabled", False)
-
-    if not proxy_url:
-        home_cfg = os.path.join(info.get("home", "/home/dev"), ".proxy_config")
-        if os.path.exists(home_cfg):
-            try:
-                with open(home_cfg) as f:
-                    for line in f:
-                        if line.startswith("PROXY_URL="):
-                            proxy_url = line.split("=", 1)[1].strip().strip('"\'')
-                        elif line.startswith("PROXY_ENABLED="):
-                            proxy_enabled = "yes" in line.lower()
-            except Exception:
-                pass
-
-    is_global = False
-    if not proxy_url or not proxy_enabled:
-        gp = get_global_proxy()
-        if gp.get("enabled") and gp.get("url"):
-            proxy_url = gp["url"]
-            proxy_enabled = True
-            is_global = True
-
-    cmd = ["curl", "-s", "--connect-timeout", "3", "--max-time", "6", "http://ip-api.com/json/?fields=status,message,country,city,query,org"]
-    if proxy_enabled and proxy_url:
-        cmd.extend(["-x", proxy_url])
-
-    try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=7)
-        if res.returncode == 0 and res.stdout:
-            data = json.loads(res.stdout)
-            if data.get("status") == "success":
-                data["proxy_active"] = proxy_enabled and bool(proxy_url)
-                data["proxy_url"] = proxy_url
-                data["is_global"] = is_global
-                data["env"] = env_name
-                return data
-    except Exception:
-        pass
-
+def _placeholder_ip(env_name):
+    cached = _IP_CACHE.get(env_name)
+    if cached:
+        return cached["data"]
+    home, _ = core.env_paths(env_name)
+    enabled, url, is_global = core.read_proxy_config(home)
     return {
-        "status": "fail",
-        "query": "Не удалось определить",
-        "country": "Офлайн или ошибка сети",
+        "status": "success",
+        "query": "Нажмите «Проверить IP»",
+        "country": "Определение по клику",
         "city": "",
-        "proxy_active": proxy_enabled and bool(proxy_url),
-        "proxy_url": proxy_url,
+        "org": "",
+        "proxy_active": enabled and bool(url),
+        "proxy_url": url,
         "is_global": is_global,
-        "env": env_name
+        "env": env_name,
     }
 
+
+def _terminal_payload():
+    st = core.ttyd_status()
+    running = bool(st.get("running"))
+    return {
+        "running": running,
+        "url": f"http://localhost:{st.get('port', TERMINAL_PORT)}/?t={int(time.time())}" if running else "",
+        "port": st.get("port", TERMINAL_PORT),
+        "env": st.get("env", ""),
+        "session": st.get("session", ""),
+        "available": bool(core.find_ttyd()),
+    }
+
+
+def build_status():
+    manifest = core.ensure_manifest()
+    active = manifest.get("active", "default")
+    envs = manifest.get("environments", {})
+    for name, info in envs.items():
+        ws = info.get("workspace", "")
+        try:
+            info["files_count"] = len(os.listdir(ws)) if os.path.isdir(ws) else 0
+        except Exception:
+            info["files_count"] = 0
+        sessions = core.get_env_sessions(info.get("home", ""))
+        info["sessions"] = sessions
+        info["latest_session"] = sessions[0] if sessions else None
+        info["display_path"] = core.to_display_path(ws)
+    return {
+        "status": "ok",
+        "app": core.APP_NAME,
+        "version": core.APP_VERSION,
+        "platform": core.PLATFORM,
+        "state_dir": core.STATE_DIR,
+        "environments": envs,
+        "active_env": active,
+        "network": _placeholder_ip(active),
+        "terminal": _terminal_payload(),
+        "ttyd_available": bool(core.find_ttyd()),
+        "win_projects_dir": core.export_root() or os.path.join(core.STATION_ROOT, "workspace"),
+        "win_projects_path": core.to_display_path(core.export_root() or os.path.join(core.STATION_ROOT, "workspace")),
+    }
+
+
+# ---------------------------------------------------------------------------
+# HTTP handler
+# ---------------------------------------------------------------------------
+
 class GUIRequestHandler(BaseHTTPRequestHandler):
+    server_version = "OpenCodeStation/" + core.APP_VERSION
+
+    def log_message(self, fmt, *args):
+        # Keep the console readable; errors are still visible.
+        if args and str(args[1] if len(args) > 1 else "").startswith(("4", "5")):
+            sys.stderr.write("[gui] " + (fmt % args) + "\n")
+
     def send_json(self, data, status=200):
+        raw = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(raw)))
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
+        self.wfile.write(raw)
+
+    def send_bytes(self, data, content_type, filename=None, status=200):
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Cache-Control", "no-store")
+        if filename:
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.end_headers()
+        self.wfile.write(data)
 
     def do_OPTIONS(self):
         self.send_response(200)
@@ -856,105 +165,91 @@ class GUIRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
 
+    # ------------------------------------------------------------ GET
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
         query = parse_qs(parsed.query)
 
-        if path == "/api/ping" or path == "/api/health":
-            self.send_json({"status": "ok", "app": "OpenCode Station", "time": time.time()})
+        if path in ("/api/ping", "/api/health"):
+            self.send_json({"status": "ok", "app": core.APP_NAME,
+                            "version": core.APP_VERSION, "platform": core.PLATFORM,
+                            "time": time.time()})
             return
 
-        elif path == "/api/status":
-            manifest = ensure_manifest()
-            active_env = manifest.get("active", "default")
-            my_ip = get_cached_env_ip(active_env, force=False)
+        if path == "/api/status":
+            self.send_json(build_status())
+            return
+
+        if path == "/api/envs":
+            manifest = core.ensure_manifest()
             envs = manifest.get("environments", {})
             for name, info in envs.items():
-                ws = info.get("workspace", "")
-                if os.path.exists(ws):
-                    try:
-                        info["files_count"] = len(os.listdir(ws))
-                    except Exception:
-                        info["files_count"] = 0
-                else:
-                    info["files_count"] = 0
+                info["sessions"] = core.get_env_sessions(info.get("home", ""))
+                info["latest_session"] = info["sessions"][0] if info["sessions"] else None
+                info["display_path"] = core.to_display_path(info.get("workspace", ""))
+            self.send_json({"environments": envs, "active": manifest.get("active", "default")})
+            return
 
-                sessions = get_env_sessions(info.get("home", ""))
-                info["sessions"] = sessions
-                info["latest_session"] = sessions[0] if sessions else None
+        if path == "/api/sessions":
+            env_name = query.get("env", [core.get_active_env_name()])[0]
+            home, _ = core.env_paths(env_name)
+            self.send_json({"env": env_name, "sessions": core.get_env_sessions(home)})
+            return
 
-            self.send_json({
-                "status": "ok",
-                "environments": envs,
-                "active_env": active_env,
-                "network": my_ip,
-                "win_projects_dir": WIN_PROJECTS_DIR,
-                "win_projects_path": to_win_path(WIN_PROJECTS_DIR)
-            })
-        elif path == "/api/envs":
-            manifest = ensure_manifest()
-            envs = manifest.get("environments", {})
-            for name, info in envs.items():
-                ws = info.get("workspace", "")
-                if os.path.exists(ws):
-                    try:
-                        info["files_count"] = len(os.listdir(ws))
-                    except Exception:
-                        info["files_count"] = 0
-                else:
-                    info["files_count"] = 0
-                sessions = get_env_sessions(info.get("home", ""))
-                info["sessions"] = sessions
-                info["latest_session"] = sessions[0] if sessions else None
-
-            self.send_json({
-                "environments": envs,
-                "active": manifest.get("active", "default")
-            })
-        elif path == "/api/sessions":
-            env_name = query.get("env", ["default"])[0]
-            manifest = ensure_manifest()
-            env_info = manifest.get("environments", {}).get(env_name, {})
-            home_dir = env_info.get("home", "/home/dev")
-            sessions = get_env_sessions(home_dir)
-            self.send_json({"env": env_name, "sessions": sessions})
-
-        elif path == "/api/proxy":
-            env_name = query.get("env", ["default"])[0]
-            manifest = ensure_manifest()
-            env_info = manifest.get("environments", {}).get(env_name, {})
-            ip_check = get_cached_env_ip(env_name, force=True)
-            gp = get_global_proxy()
+        if path == "/api/proxy":
+            env_name = query.get("env", [core.get_active_env_name()])[0]
+            info = core.env_info(env_name)
+            force = query.get("force", ["1"])[0] not in ("0", "false", "no")
             self.send_json({
                 "env": env_name,
-                "proxy_url": env_info.get("proxy_url", ""),
-                "proxy_enabled": env_info.get("proxy_enabled", False),
-                "global_proxy": gp,
-                "ip_check": ip_check
+                "proxy_url": info.get("proxy_url", ""),
+                "proxy_enabled": info.get("proxy_enabled", False),
+                "global_proxy": core.get_global_proxy(),
+                "ip_check": _cached_ip(env_name, force=force),
             })
-        elif path == "/api/proxy/global":
-            self.send_json({"success": True, "global_proxy": get_global_proxy()})
-        elif path == "/api/proxies/catalog":
-            self.send_json({"success": True, "proxies": get_proxies_catalog(), "global_proxy": get_global_proxy()})
+            return
 
-        elif path == "/api/files":
-            manifest = ensure_manifest()
-            active_info = manifest.get("environments", {}).get(manifest.get("active", "default"), {})
-            default_target = active_info.get("workspace", "/home/dev/workspace/default")
-            target = query.get("path", [default_target])[0]
-            if not target:
-                target = default_target
-            items = get_dir_contents(target)
+        if path == "/api/proxy/global":
+            self.send_json({"success": True, "global_proxy": core.get_global_proxy()})
+            return
+
+        if path == "/api/proxies/catalog":
+            self.send_json({"success": True, "proxies": core.get_proxies_catalog(),
+                            "global_proxy": core.get_global_proxy()})
+            return
+
+        if path == "/api/terminal/status":
+            self.send_json({"success": True, "terminal": _terminal_payload()})
+            return
+
+        if path == "/api/provider":
+            self.send_json(core.load_provider_config())
+            return
+
+        if path == "/api/myip":
+            env_name = query.get("env", [core.get_active_env_name()])[0]
+            self.send_json(_cached_ip(env_name, force=True))
+            return
+
+        if path == "/api/files":
+            manifest = core.ensure_manifest()
+            active = manifest.get("active", "default")
+            info = manifest.get("environments", {}).get(active, {})
+            default_target = info.get("workspace") or core.default_env_workspace()
+            target = query.get("path", [default_target])[0] or default_target
+            target = core.to_native_path(target)
             parent = os.path.dirname(os.path.abspath(target))
             self.send_json({
                 "current_path": target,
-                "current_win_path": to_win_path(target),
-                "parent_path": parent if parent != target else "/",
-                "items": items
+                "current_win_path": core.to_display_path(target),
+                "parent_path": parent if parent != target else os.path.dirname(target),
+                "items": core.get_dir_contents(target),
             })
-        elif path == "/api/file/read":
-            target = query.get("path", [""])[0]
+            return
+
+        if path == "/api/file/read":
+            target = core.to_native_path(query.get("path", [""])[0])
             if not target or not os.path.exists(target):
                 self.send_json({"error": "Файл не найден"}, status=404)
                 return
@@ -962,482 +257,561 @@ class GUIRequestHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": "Это папка, а не файл"}, status=400)
                 return
             try:
-                with open(target, "r", encoding="utf-8", errors="replace") as f:
-                    content = f.read(1000000)
-                self.send_json({
-                    "path": target,
-                    "win_path": to_win_path(target),
-                    "name": os.path.basename(target),
-                    "size": os.path.getsize(target),
-                    "content": content
-                })
-            except Exception as e:
-                self.send_json({"error": str(e)}, status=500)
-        elif path == "/api/file/download":
-            target = query.get("path", [""])[0]
-            if not target or not os.path.exists(target) or os.path.isdir(target):
+                with open(target, "r", encoding="utf-8", errors="replace") as fh:
+                    content = fh.read(1_000_000)
+                self.send_json({"path": target, "win_path": core.to_display_path(target),
+                                "name": os.path.basename(target),
+                                "size": os.path.getsize(target), "content": content})
+            except Exception as exc:
+                self.send_json({"error": str(exc)}, status=500)
+            return
+
+        if path == "/api/file/download":
+            target = core.to_native_path(query.get("path", [""])[0])
+            if not target or not os.path.isfile(target):
                 self.send_response(404)
                 self.end_headers()
                 return
-            filename = os.path.basename(target)
-            file_size = os.path.getsize(target)
-            self.send_response(200)
-            self.send_header("Content-Type", "application/octet-stream")
-            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
-            self.send_header("Content-Length", str(file_size))
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            with open(target, "rb") as f:
-                shutil.copyfileobj(f, self.wfile)
+            try:
+                with open(target, "rb") as fh:
+                    data = fh.read()
+                self.send_bytes(data, "application/octet-stream", os.path.basename(target))
+            except Exception as exc:
+                self.send_json({"error": str(exc)}, status=500)
             return
-        elif path == "/api/files/zip":
-            target_dir = query.get("dir", ["/home/dev/workspace/default"])[0]
+
+        if path == "/api/files/zip":
+            target_dir = core.to_native_path(query.get("dir", [""])[0] or core.default_env_workspace())
             items_param = query.get("items", [""])[0]
             bio = io.BytesIO()
             with zipfile.ZipFile(bio, "w", zipfile.ZIP_DEFLATED) as zf:
                 if items_param:
-                    item_names = [it.strip() for it in items_param.split(";") if it.strip()]
-                    for iname in item_names:
-                        full_p = os.path.join(target_dir, iname)
-                        if os.path.exists(full_p):
-                            if os.path.isdir(full_p):
-                                for root, dirs, files in os.walk(full_p):
-                                    for f in files:
-                                        fp = os.path.join(root, f)
-                                        rel = os.path.relpath(fp, target_dir)
-                                        zf.write(fp, rel)
-                            else:
-                                zf.write(full_p, iname)
-                else:
-                    if os.path.exists(target_dir):
-                        for root, dirs, files in os.walk(target_dir):
-                            for f in files:
-                                fp = os.path.join(root, f)
-                                rel = os.path.relpath(fp, target_dir)
-                                zf.write(fp, rel)
-            bio.seek(0)
-            data = bio.read()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/zip")
-            self.send_header("Content-Disposition", 'attachment; filename="opencode_export.zip"')
-            self.send_header("Content-Length", str(len(data)))
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(data)
+                    for iname in [x.strip() for x in items_param.split(";") if x.strip()]:
+                        full = os.path.join(target_dir, iname)
+                        if os.path.isdir(full):
+                            for root, _dirs, files in os.walk(full):
+                                for fname in files:
+                                    fp = os.path.join(root, fname)
+                                    zf.write(fp, os.path.relpath(fp, target_dir))
+                        elif os.path.isfile(full):
+                            zf.write(full, iname)
+                elif os.path.isdir(target_dir):
+                    for root, _dirs, files in os.walk(target_dir):
+                        for fname in files:
+                            fp = os.path.join(root, fname)
+                            zf.write(fp, os.path.relpath(fp, target_dir))
+            self.send_bytes(bio.getvalue(), "application/zip", "opencode_export.zip")
             return
-        elif path == "/api/provider":
-            self.send_json(load_provider_config())
-        elif path == "/api/myip":
-            env_name = query.get("env", ["default"])[0]
-            self.send_json(check_env_ip(env_name))
-        elif path in ["/", "/index.html"]:
-            self.serve_app()
-        else:
-            self.send_response(404)
-            self.end_headers()
 
+        if path in ("/", "/index.html"):
+            self.serve_app()
+            return
+
+        if path == "/favicon.ico":
+            self.send_bytes(b"", "image/x-icon", status=204)
+            return
+
+        self.send_response(404)
+        self.end_headers()
+
+    # ------------------------------------------------------------ POST
     def do_POST(self):
         parsed = urlparse(self.path)
         path = parsed.path
-        length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(length) if length > 0 else b"{}"
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        body = self.rfile.read(length) if length else b"{}"
+        try:
+            req = json.loads(body.decode("utf-8")) if body else {}
+        except Exception:
+            req = {}
 
         try:
-            req_data = json.loads(body.decode("utf-8")) if body else {}
-        except Exception:
-            req_data = {}
-
-        if path == "/api/opencode/kill":
-            try:
-                res = subprocess.run(["/usr/local/bin/kill-opencode"], capture_output=True, text=True, timeout=5)
-                self.send_json({"success": True, "message": "Процессы OpenCode успешно остановлены", "output": res.stdout})
-            except Exception as e:
-                self.send_json({"error": str(e)}, status=500)
-
-        elif path == "/api/export":
-            src_paths = req_data.get("paths", [])
-            src_dir = req_data.get("src_dir", "/home/dev/workspace/default")
-            dest_win = req_data.get("dest_win", "D:\\OpenCode-Station_Package\\workspace")
-            dest_linux = to_linux_path(dest_win)
-            os.makedirs(dest_linux, exist_ok=True)
-            copied = []
-            if src_paths:
-                for p in src_paths:
-                    if os.path.exists(p):
-                        base = os.path.basename(p.rstrip("/\\"))
-                        target = os.path.join(dest_linux, base)
-                        if os.path.isdir(p):
-                            if os.path.exists(target):
-                                shutil.rmtree(target)
-                            shutil.copytree(p, target)
-                        else:
-                            shutil.copy2(p, target)
-                        copied.append(base)
-            else:
-                if os.path.exists(src_dir):
-                    for entry in os.scandir(src_dir):
-                        if entry.name.startswith("."):
-                            continue
-                        target = os.path.join(dest_linux, entry.name)
-                        if entry.is_dir():
-                            if os.path.exists(target):
-                                shutil.rmtree(target)
-                            shutil.copytree(entry.path, target)
-                        else:
-                            shutil.copy2(entry.path, target)
-                        copied.append(entry.name)
-            self.send_json({"success": True, "copied": copied, "count": len(copied), "dest_win": dest_win})
-
-        elif path == "/api/import":
-            src_win = req_data.get("src_win", "D:\\OpenCode-Station_Package\\workspace")
-            dest_linux = req_data.get("dest_linux", "/home/dev/workspace/default")
-            src_linux = to_linux_path(src_win)
-            if not os.path.exists(src_linux):
-                self.send_json({"error": f"Папка {src_win} не найдена"}, status=404)
-                return
-            os.makedirs(dest_linux, exist_ok=True)
-            imported = []
-            for entry in os.scandir(src_linux):
-                if entry.name.startswith("."):
-                    continue
-                target = os.path.join(dest_linux, entry.name)
-                if entry.is_dir():
-                    if os.path.exists(target):
-                        shutil.rmtree(target)
-                    shutil.copytree(entry.path, target)
+            if path == "/api/opencode/kill":
+                env_name = (req.get("env") or "").strip()
+                if env_name:
+                    n = core.kill_env_processes(env_name)
                 else:
-                    shutil.copy2(entry.path, target)
-                imported.append(entry.name)
-            self.send_json({"success": True, "imported": imported, "count": len(imported)})
-
-        elif path == "/api/envs/create":
-            name = req_data.get("name", "").strip()
-            ok, res = create_env(name)
-            if ok:
-                self.send_json({"success": True, "env": res})
-            else:
-                self.send_json({"success": False, "error": res}, status=400)
-
-        elif path == "/api/envs/reset":
-            name = req_data.get("name", "").strip()
-            ok, res = reset_env(name)
-            if ok:
-                self.send_json({"success": True, "result": res})
-            else:
-                self.send_json({"success": False, "error": res}, status=400)
-
-        elif path == "/api/envs/delete":
-            name = req_data.get("name", "").strip()
-            del_ws = req_data.get("delete_workspace", False)
-            ok, res = delete_env(name, del_ws)
-            if ok:
-                self.send_json({"success": True, "result": res})
-            else:
-                self.send_json({"success": False, "error": res}, status=400)
-
-        elif path == "/api/envs/purge":
-            ok, res = purge_envs()
-            self.send_json({"success": ok, "result": res})
-
-        elif path in ["/api/envs/set_active", "/api/envs/switch"]:
-            name = req_data.get("name", "").strip()
-            ok, res = set_active_env(name)
-            if ok:
-                self.send_json({"success": True, "result": res})
-            else:
-                self.send_json({"success": False, "error": res}, status=400)
-
-        elif path == "/api/files/upload":
-            dest_dir = req_data.get("dir", "/home/dev/workspace/default")
-            filename = req_data.get("name", "uploaded_file")
-            b64_content = req_data.get("content_base64", "")
-            if not b64_content:
-                self.send_json({"error": "Пустое содержимое"}, status=400)
+                    n = 0
+                    for name in core.ensure_manifest().get("environments", {}):
+                        n += core.kill_env_processes(name)
+                self.send_json({"success": True, "killed": n,
+                                "message": "Процессы OpenCode остановлены"})
                 return
-            try:
-                os.makedirs(dest_dir, exist_ok=True)
-                raw_data = base64.b64decode(b64_content)
-                target_path = os.path.join(dest_dir, filename)
-                with open(target_path, "wb") as f:
-                    f.write(raw_data)
-                self.send_json({"success": True, "path": target_path, "win_path": to_win_path(target_path)})
-            except Exception as e:
-                self.send_json({"error": str(e)}, status=500)
 
-        elif path == "/api/files/write":
-            file_path = req_data.get("path", "")
-            content = req_data.get("content", "")
-            if not file_path:
-                self.send_json({"error": "Путь не указан"}, status=400)
+            if path == "/api/terminal/launch":
+                env_name = (req.get("env") or core.get_active_env_name()).strip()
+                session = (req.get("session") or "").strip() or None
+                run_opencode = bool(req.get("run_opencode", True))
+                ok, result = core.start_terminal(env_name, session, TERMINAL_PORT,
+                                                 run_opencode=run_opencode)
+                if ok:
+                    self.send_json({"success": True, "terminal": result})
+                else:
+                    self.send_json({"success": False, "error": result}, status=500)
                 return
-            try:
-                os.makedirs(os.path.dirname(file_path), exist_ok=True)
-                with open(file_path, "w", encoding="utf-8") as f:
-                    f.write(content)
+
+            if path == "/api/terminal/reset":
+                env_name = (req.get("env") or core.get_active_env_name()).strip()
+                ok, result = core.start_terminal(env_name, None, TERMINAL_PORT,
+                                                 run_opencode=False)
+                if ok:
+                    self.send_json({"success": True, "terminal": result})
+                else:
+                    self.send_json({"success": False, "error": result}, status=500)
+                return
+
+            if path == "/api/terminal/stop":
+                core.stop_terminal()
                 self.send_json({"success": True})
-            except Exception as e:
-                self.send_json({"error": str(e)}, status=500)
-
-        elif path == "/api/files/copy":
-            src = req_data.get("src", "")
-            dst = req_data.get("dst", "")
-            if not src or not dst or not os.path.exists(src):
-                self.send_json({"error": "Исходный файл или папка не существует"}, status=400)
                 return
-            try:
+
+            if path == "/api/envs/create":
+                name = (req.get("name") or "").strip()
+                with _MANIFEST_LOCK:
+                    ok, result = core.create_env(name)
+                if ok:
+                    self.send_json({"success": True, "env": result})
+                else:
+                    self.send_json({"success": False, "error": result}, status=400)
+                return
+
+            if path == "/api/envs/reset":
+                name = (req.get("name") or "").strip()
+                if _terminal_payload().get("env") == name:
+                    core.stop_terminal()
+                ok, result = core.reset_env(name)
+                if ok:
+                    self.send_json({"success": True, "result": result})
+                else:
+                    self.send_json({"success": False, "error": result}, status=400)
+                return
+
+            if path == "/api/envs/delete":
+                name = (req.get("name") or "").strip()
+                if _terminal_payload().get("env") == name:
+                    core.stop_terminal()
+                with _MANIFEST_LOCK:
+                    ok, result = core.delete_env(name, bool(req.get("delete_workspace", False)))
+                if ok:
+                    self.send_json({"success": True, "result": result})
+                else:
+                    self.send_json({"success": False, "error": result}, status=400)
+                return
+
+            if path == "/api/envs/purge":
+                with _MANIFEST_LOCK:
+                    ok, result = core.purge_envs()
+                self.send_json({"success": ok, "result": result})
+                return
+
+            if path in ("/api/envs/set_active", "/api/envs/switch"):
+                name = (req.get("name") or "").strip()
+                ok, result = core.set_active_env(name)
+                if ok:
+                    self.send_json({"success": True, "result": result})
+                else:
+                    self.send_json({"success": False, "error": result}, status=400)
+                return
+
+            if path == "/api/proxy/set":
+                self.handle_proxy_set(req)
+                return
+
+            if path == "/api/proxy/toggle":
+                req["enable"] = bool(req.get("enable", False))
+                self.handle_proxy_set(req, toggle_only=True)
+                return
+
+            if path == "/api/proxy/global":
+                url = (req.get("url") or "").strip()
+                enable = bool(req.get("enable", True))
+                apply_all = bool(req.get("apply_all", False))
+                if enable and url:
+                    check = core.test_proxy_connectivity(url, timeout=8)
+                    if not check.get("success"):
+                        self.send_json({"success": False,
+                                        "error": check.get("error", "Прокси недоступен"),
+                                        "tls_ok": check.get("tls_ok", False)}, status=400)
+                        return
+                cfg = core.set_global_proxy(url, enable, apply_to_all_envs=apply_all)
+                self.send_json({"success": True, "global_proxy": cfg})
+                return
+
+            if path == "/api/proxies/catalog/test":
+                url = (req.get("url") or "").strip()
+                self.send_json(core.test_proxy_connectivity(url, timeout=8))
+                return
+
+            if path == "/api/proxies/catalog/refresh":
+                self.handle_catalog_refresh()
+                return
+
+            if path == "/api/provider/save":
+                pcfg = {
+                    "provider": req.get("provider", "opencode"),
+                    "model": req.get("model", ""),
+                    "apiKey": (req.get("apiKey") or "").strip(),
+                    "updated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                }
+                core.save_provider_config(pcfg)
+                manifest = core.ensure_manifest()
+                if req.get("apply_all", True):
+                    for ename, einfo in manifest.get("environments", {}).items():
+                        core.apply_provider_to_env(ename, einfo, pcfg)
+                else:
+                    active = manifest.get("active", "default")
+                    if active in manifest.get("environments", {}):
+                        core.apply_provider_to_env(active, manifest["environments"][active], pcfg)
+                self.send_json({"success": True, "config": pcfg})
+                return
+
+            if path == "/api/provider/test":
+                ok, msg = core.test_provider_api(
+                    req.get("provider", "opencode"),
+                    (req.get("apiKey") or "").strip(),
+                    req.get("model", ""),
+                    env_name=req.get("env"),
+                )
+                self.send_json({"success": ok, "message": msg})
+                return
+
+            if path == "/api/export":
+                self.handle_export(req)
+                return
+
+            if path == "/api/import":
+                self.handle_import(req)
+                return
+
+            if path == "/api/files/upload":
+                dest = core.to_native_path(req.get("dir", "")) or core.default_env_workspace()
+                filename = os.path.basename(req.get("name", "uploaded_file")) or "uploaded_file"
+                b64 = req.get("content_base64", "")
+                if not b64:
+                    self.send_json({"error": "Пустое содержимое"}, status=400)
+                    return
+                os.makedirs(dest, exist_ok=True)
+                target = os.path.join(dest, filename)
+                with open(target, "wb") as fh:
+                    fh.write(base64.b64decode(b64))
+                self.send_json({"success": True, "path": target,
+                                "win_path": core.to_display_path(target)})
+                return
+
+            if path == "/api/files/write":
+                target = core.to_native_path(req.get("path", ""))
+                if not target:
+                    self.send_json({"error": "Путь не указан"}, status=400)
+                    return
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+                with open(target, "w", encoding="utf-8") as fh:
+                    fh.write(req.get("content", ""))
+                self.send_json({"success": True})
+                return
+
+            if path == "/api/files/copy":
+                src = core.to_native_path(req.get("src", ""))
+                dst = core.to_native_path(req.get("dst", ""))
+                if not src or not dst or not os.path.exists(src):
+                    self.send_json({"error": "Исходный файл или папка не существует"}, status=400)
+                    return
                 if os.path.isdir(src):
-                    dest_dir = os.path.join(dst, os.path.basename(src))
-                    if os.path.exists(dest_dir):
-                        shutil.rmtree(dest_dir)
-                    shutil.copytree(src, dest_dir)
+                    target = os.path.join(dst, os.path.basename(src.rstrip("/\\")))
+                    shutil.rmtree(target, ignore_errors=True)
+                    shutil.copytree(src, target)
                 else:
                     os.makedirs(dst, exist_ok=True)
                     shutil.copy2(src, dst)
                 self.send_json({"success": True})
-            except Exception as e:
-                self.send_json({"error": str(e)}, status=500)
-
-        elif path == "/api/files/delete":
-            target = req_data.get("path", "")
-            if not target or not os.path.exists(target):
-                self.send_json({"error": "Файл не найден"}, status=404)
                 return
-            try:
+
+            if path == "/api/files/delete":
+                target = core.to_native_path(req.get("path", ""))
+                if not target or not os.path.exists(target):
+                    self.send_json({"error": "Файл не найден"}, status=404)
+                    return
                 if os.path.isdir(target):
                     shutil.rmtree(target, ignore_errors=True)
                 else:
                     os.remove(target)
-                
-                # If default directory was deleted, also clean mirror directory
-                if target.rstrip("/\\").endswith("default"):
-                    for mirror in ["/home/dev/workspace/default", "/mnt/d/OpenCode-Station_Package/workspace/default"]:
-                        if os.path.exists(mirror):
-                            shutil.rmtree(mirror, ignore_errors=True)
-
                 self.send_json({"success": True})
-            except Exception as e:
-                self.send_json({"error": str(e)}, status=500)
-
-        elif path == "/api/files/delete_batch":
-            targets = req_data.get("paths", [])
-            deleted = 0
-            for t in targets:
-                if os.path.exists(t):
-                    try:
-                        if os.path.isdir(t):
-                            shutil.rmtree(t)
-                        else:
-                            os.remove(t)
-                        deleted += 1
-                    except Exception:
-                        pass
-            self.send_json({"success": True, "deleted_count": deleted})
-
-        elif path == "/api/files/mkdir":
-            target = req_data.get("path", "")
-            if not target:
-                self.send_json({"error": "Путь не указан"}, status=400)
                 return
-            try:
+
+            if path == "/api/files/delete_batch":
+                deleted = 0
+                for item in req.get("paths", []):
+                    target = core.to_native_path(item)
+                    if target and os.path.exists(target):
+                        if os.path.isdir(target):
+                            shutil.rmtree(target, ignore_errors=True)
+                        else:
+                            os.remove(target)
+                        deleted += 1
+                self.send_json({"success": True, "deleted_count": deleted})
+                return
+
+            if path == "/api/files/mkdir":
+                target = core.to_native_path(req.get("path", ""))
+                if not target:
+                    self.send_json({"error": "Путь не указан"}, status=400)
+                    return
                 os.makedirs(target, exist_ok=True)
                 self.send_json({"success": True})
-            except Exception as e:
-                self.send_json({"error": str(e)}, status=500)
+                return
 
-        elif path == "/api/open_explorer":
-            target = req_data.get("path", WIN_PROJECTS_DIR)
-            win_p = to_win_path(target)
-            try:
-                subprocess.Popen(["/mnt/c/Windows/explorer.exe", win_p])
-                self.send_json({"success": True, "path": win_p})
-            except Exception as e:
-                self.send_json({"error": str(e)}, status=500)
+            if path == "/api/open_explorer":
+                target = core.to_native_path(req.get("path", "")) or core.export_root() or core.STATION_ROOT
+                self.send_json(self.open_in_file_manager(target))
+                return
 
-        elif path == "/api/proxy/set":
-            env_name = req_data.get("env", "default").strip()
-            url = req_data.get("url", "").strip()
-            enable = req_data.get("enable", True)
-            make_global = req_data.get("make_global", False)
-
-            if url and "://" not in url:
-                url = f"http://{url}"
-
-            manifest = ensure_manifest()
-            envs = manifest.get("environments", {})
-            if env_name in envs:
-                envs[env_name]["proxy_url"] = url
-                envs[env_name]["proxy_enabled"] = bool(enable)
-                save_manifest(manifest)
-
-                # Write to env home .proxy_config
-                home_dir = envs[env_name].get("home", "/home/dev")
-                cfg_file = os.path.join(home_dir, ".proxy_config")
-                try:
-                    state = "yes" if enable else "no"
-                    with open(cfg_file, "w") as f:
-                        f.write(f'PROXY_ENABLED="{state}"\nPROXY_URL="{url}"\n')
-                except Exception:
-                    pass
-
-                if make_global:
-                    set_global_proxy(url, enable, apply_to_all_envs=True)
-
-                # If SOCKS proxy enabled, ensure local bridge is started
-                if enable and url and any(url.lower().startswith(s) for s in ["socks5://", "socks5h://", "socks4://", "socks://"]):
-                    try:
-                        subprocess.run(["/usr/local/bin/opencode-proxy-bridge", "start", url, "10800"], capture_output=True)
-                    except Exception:
-                        pass
-                elif not enable:
-                    try:
-                        subprocess.run(["/usr/local/bin/opencode-proxy-bridge", "stop", "10800"], capture_output=True)
-                    except Exception:
-                        pass
-
-                ip_res = check_env_ip(env_name)
-                self.send_json({"success": True, "env": env_name, "ip_check": ip_res})
-            else:
-                self.send_json({"error": f"Среда '{env_name}' не найдена"}, status=404)
-
-        elif path == "/api/proxy/global":
-            url = req_data.get("url", "").strip()
-            enable = req_data.get("enable", True)
-            apply_all = req_data.get("apply_all", True)
-            cfg = set_global_proxy(url, enable, apply_all)
-            self.send_json({"success": True, "global_proxy": cfg})
-
-        elif path == "/api/proxies/catalog/test":
-            url = req_data.get("url", "").strip()
-            res = test_proxy_connectivity(url)
-            self.send_json(res)
-
-        elif path == "/api/proxies/catalog/refresh":
-            import concurrent.futures
-            cat = get_proxies_catalog()
-            updated_cat = []
-            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
-                futs = {ex.submit(test_proxy_connectivity, p.get("url", "")): p for p in cat}
-                for f in concurrent.futures.as_completed(futs):
-                    old_p = futs[f]
-                    try:
-                        res = f.result()
-                        if res.get("success"):
-                            old_p["latency"] = res.get("latency", old_p.get("latency", 999))
-                            old_p["working"] = True
-                            if res.get("ip"): old_p["ip"] = res["ip"]
-                            if res.get("country"): old_p["country"] = res["country"]
-                            if res.get("city"): old_p["city"] = res["city"]
-                        else:
-                            old_p["working"] = False
-                    except Exception:
-                        old_p["working"] = False
-                    updated_cat.append(old_p)
-            updated_cat.sort(key=lambda x: (not x.get("working", False), x.get("latency", 9999)))
-            for pth in [PROXIES_CATALOG_FILE, PACKAGE_CATALOG_FILE]:
-                try:
-                    with open(pth, "w", encoding="utf-8") as f:
-                        json.dump(updated_cat, f, indent=2, ensure_ascii=False)
-                except Exception:
-                    pass
-            self.send_json({"success": True, "proxies": updated_cat})
-
-        elif path == "/api/provider/save":
-            provider = req_data.get("provider", "opencode")
-            model = req_data.get("model", "opencode/deepseek-v4.1-flash-free")
-            api_key = req_data.get("apiKey", "").strip()
-            apply_all = req_data.get("apply_all", True)
-            
-            pcfg = {
-                "provider": provider,
-                "model": model,
-                "apiKey": api_key,
-                "updated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
-            save_provider_config(pcfg)
-            
-            manifest = ensure_manifest()
-            envs = manifest.get("environments", {})
-            active_env = manifest.get("active", "default")
-            
-            if apply_all:
-                for ename, einfo in envs.items():
-                    apply_provider_to_env(ename, einfo, pcfg)
-            elif active_env in envs:
-                apply_provider_to_env(active_env, envs[active_env], pcfg)
-                
-            self.send_json({"success": True, "config": pcfg})
-
-        elif path == "/api/provider/test":
-            provider = req_data.get("provider", "opencode")
-            model = req_data.get("model", "")
-            api_key = req_data.get("apiKey", "").strip()
-            ok, msg = test_provider_api(provider, api_key, model)
-            self.send_json({"success": ok, "message": msg})
-
-        elif path == "/api/proxy/toggle":
-            env_name = req_data.get("env", "default").strip()
-            enable = req_data.get("enable", False)
-
-            manifest = ensure_manifest()
-            envs = manifest.get("environments", {})
-            if env_name in envs:
-                envs[env_name]["proxy_enabled"] = bool(enable)
-                save_manifest(manifest)
-
-                home_dir = envs[env_name].get("home", "/home/dev")
-                cfg_file = os.path.join(home_dir, ".proxy_config")
-                try:
-                    state = "yes" if enable else "no"
-                    lines = []
-                    if os.path.exists(cfg_file):
-                        with open(cfg_file) as f:
-                            lines = [l for l in f if not l.startswith("PROXY_ENABLED=")]
-                    lines.insert(0, f'PROXY_ENABLED="{state}"\n')
-                    with open(cfg_file, "w") as f:
-                        f.writelines(lines)
-                except Exception:
-                    pass
-
-                url = envs[env_name].get("proxy_url", "")
-                if enable and url and any(url.lower().startswith(s) for s in ["socks5://", "socks5h://", "socks4://", "socks://"]):
-                    try:
-                        subprocess.run(["/usr/local/bin/opencode-proxy-bridge", "start", url, "10800"], capture_output=True)
-                    except Exception:
-                        pass
-                elif not enable:
-                    try:
-                        subprocess.run(["/usr/local/bin/opencode-proxy-bridge", "stop", "10800"], capture_output=True)
-                    except Exception:
-                        pass
-
-                ip_res = check_env_ip(env_name)
-                self.send_json({"success": True, "env": env_name, "enabled": enable, "ip_check": ip_res})
-            else:
-                self.send_json({"error": f"Среда '{env_name}' не найдена"}, status=404)
-        else:
             self.send_response(404)
             self.end_headers()
+        except Exception as exc:
+            self.send_json({"success": False, "error": str(exc)}, status=500)
+
+    # ------------------------------------------------------------ operations
+    def handle_proxy_set(self, req, toggle_only=False):
+        env_name = (req.get("env") or core.get_active_env_name()).strip()
+        manifest = core.ensure_manifest()
+        envs = manifest.get("environments", {})
+        if env_name not in envs:
+            self.send_json({"error": f"Среда '{env_name}' не найдена"}, status=404)
+            return
+
+        info = envs[env_name]
+        if toggle_only:
+            url = info.get("proxy_url", "")
+            enable = bool(req.get("enable", False))
+        else:
+            url = (req.get("url") or "").strip()
+            enable = bool(req.get("enable", True))
+        url = core.normalize_proxy(url)
+
+        if enable and url:
+            check = core.test_proxy_connectivity(url, timeout=8)
+            if not check.get("success"):
+                # Save the URL but keep the proxy disabled: this is safer than
+                # launching OpenCode into a TLS-intercepting proxy.
+                info["proxy_url"] = url
+                info["proxy_enabled"] = False
+                core.save_manifest(manifest)
+                core.write_proxy_config(info.get("home", ""), url, False)
+                self.send_json({
+                    "success": False,
+                    "error": check.get("error", "Прокси не прошёл проверку"),
+                    "tls_ok": check.get("tls_ok", False),
+                    "ip_check": check,
+                }, status=400)
+                return
+
+        info["proxy_url"] = url
+        info["proxy_enabled"] = enable
+        core.save_manifest(manifest)
+        core.write_proxy_config(info.get("home", ""), url, enable)
+        if enable and url and core.is_socks(url):
+            core.start_bridge(env_name, url)
+        else:
+            core.stop_bridge(env_name)
+        if req.get("make_global") and url:
+            core.set_global_proxy(url, enable, apply_to_all_envs=False)
+        ip_res = _cached_ip(env_name, force=True)
+        self.send_json({"success": True, "env": env_name, "ip_check": ip_res})
+
+    def handle_catalog_refresh(self):
+        catalog = core.get_proxies_catalog()
+        if not catalog:
+            self.send_json({"success": True, "proxies": []})
+            return
+        results = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+            futs = {ex.submit(core.test_proxy_connectivity, p.get("url", ""), 8): dict(p)
+                    for p in catalog}
+            for fut in concurrent.futures.as_completed(futs):
+                old = futs[fut]
+                try:
+                    res = fut.result()
+                except Exception as exc:
+                    res = {"success": False, "error": str(exc)}
+                if res.get("success"):
+                    old.update({
+                        "ip": res.get("ip", old.get("ip", "")),
+                        "country": res.get("country", old.get("country", "")),
+                        "country_code": res.get("country_code", old.get("country_code", "")),
+                        "city": res.get("city", old.get("city", "")),
+                        "org": res.get("org", old.get("org", "")),
+                        "latency": res.get("latency", old.get("latency", 999)),
+                        "type": res.get("type", old.get("type", "HTTP")),
+                        "tls_ok": True, "working": True, "error": "",
+                    })
+                    results.append(old)
+        results.sort(key=lambda x: (not x.get("working"), x.get("latency", 9999)))
+        core.save_proxies_catalog(results)
+        self.send_json({"success": True, "proxies": results})
+
+    def handle_export(self, req):
+        src_paths = req.get("paths", [])
+        src_dir = core.to_native_path(req.get("src_dir", "")) or core.default_env_workspace()
+        dest_win = req.get("dest_win") or core.export_root()
+        if not dest_win:
+            self.send_json({"error": "Экспорт в Windows доступен только в WSL/Windows"}, status=400)
+            return
+        dest = core.to_native_path(dest_win)
+        os.makedirs(dest, exist_ok=True)
+        copied = []
+        if src_paths:
+            for item in src_paths:
+                src = core.to_native_path(item)
+                if not os.path.exists(src):
+                    continue
+                base = os.path.basename(src.rstrip("/\\"))
+                target = os.path.join(dest, base)
+                if os.path.isdir(src):
+                    shutil.rmtree(target, ignore_errors=True)
+                    shutil.copytree(src, target)
+                else:
+                    shutil.copy2(src, target)
+                copied.append(base)
+        elif os.path.isdir(src_dir):
+            for entry in os.scandir(src_dir):
+                if entry.name.startswith("."):
+                    continue
+                target = os.path.join(dest, entry.name)
+                if entry.is_dir():
+                    shutil.rmtree(target, ignore_errors=True)
+                    shutil.copytree(entry.path, target)
+                else:
+                    shutil.copy2(entry.path, target)
+                copied.append(entry.name)
+        self.send_json({"success": True, "copied": copied, "count": len(copied),
+                        "dest_win": dest_win})
+
+    def handle_import(self, req):
+        src_win = req.get("src_win") or core.export_root()
+        dest = core.to_native_path(req.get("dest_linux", "")) or core.default_env_workspace()
+        if not src_win:
+            self.send_json({"error": "Импорт из Windows доступен только в WSL/Windows"}, status=400)
+            return
+        src = core.to_native_path(src_win)
+        if not os.path.isdir(src):
+            self.send_json({"error": f"Папка {src_win} не найдена"}, status=404)
+            return
+        os.makedirs(dest, exist_ok=True)
+        imported = []
+        for entry in os.scandir(src):
+            if entry.name.startswith("."):
+                continue
+            target = os.path.join(dest, entry.name)
+            if entry.is_dir():
+                shutil.rmtree(target, ignore_errors=True)
+                shutil.copytree(entry.path, target)
+            else:
+                shutil.copy2(entry.path, target)
+            imported.append(entry.name)
+        self.send_json({"success": True, "imported": imported, "count": len(imported)})
+
+    def open_in_file_manager(self, target):
+        try:
+            if core.IS_WSL:
+                exe = shutil.which("explorer.exe") or "/mnt/c/Windows/explorer.exe"
+                win_path = core.to_display_path(target)
+                subprocess.Popen([exe, win_path])
+                return {"success": True, "path": win_path}
+            if core.IS_WINDOWS:
+                os.startfile(target)  # type: ignore[attr-defined]
+                return {"success": True, "path": target}
+            if core.IS_MACOS:
+                subprocess.Popen(["open", target])
+                return {"success": True, "path": target}
+            subprocess.Popen(["xdg-open", target])
+            return {"success": True, "path": target}
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
 
     def serve_app(self):
-        app_html_path = "/usr/local/share/opencode_gui/index.html"
-        if os.path.exists(app_html_path):
-            with open(app_html_path, "rb") as f:
-                content = f.read()
-        else:
-            content = b"<h1>OpenCode Workstation GUI</h1><p>Starting UI...</p>"
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(content)
+        content = None
+        for path in [APP_HTML] + APP_HTML_FALLBACKS:
+            try:
+                with open(path, "rb") as fh:
+                    content = fh.read()
+                break
+            except Exception:
+                continue
+        if content is None:
+            content = (b"<html><body><h1>OpenCode Station</h1>"
+                       b"<p>terminal.html is missing. Run setup.bat / setup.sh.</p></body></html>")
+        self.send_bytes(content, "text/html; charset=utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Startup
+# ---------------------------------------------------------------------------
+
+def _already_running(port):
+    import socket
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.4):
+            pass
+    except Exception:
+        return False
+    try:
+        import urllib.request
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/ping", timeout=1.2) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return data.get("app") == core.APP_NAME
+    except Exception:
+        return True
+
 
 def run():
-    print(f"[*] Starting OpenCode Workstation GUI Server v2.6 on http://localhost:{PORT}")
-    server = ThreadingHTTPServer((HOST, PORT), GUIRequestHandler)
+    global PORT, HOST, _TERMINAL_STARTED
+    parser = argparse.ArgumentParser(description="OpenCode Station GUI server")
+    parser.add_argument("--port", type=int, default=PORT)
+    parser.add_argument("--host", default=HOST)
+    parser.add_argument("--no-terminal", action="store_true",
+                        help="do not start ttyd automatically")
+    parser.add_argument("--no-browser", action="store_true")
+    args = parser.parse_args()
+    PORT, HOST = args.port, args.host
+
+    if _already_running(PORT):
+        print(f"[i] OpenCode Station уже запущена на http://localhost:{PORT}")
+        return 0
+
+    if not args.no_terminal:
+        ok, result = core.start_terminal(core.get_active_env_name(), None, TERMINAL_PORT,
+                                         run_opencode=False)
+        if ok:
+            _TERMINAL_STARTED = True
+            print(f"[i] Терминал: http://localhost:{TERMINAL_PORT}")
+        else:
+            print(f"[!] Терминал не запущен: {result}")
+
+    core.write_json(os.path.join(core.RUN_DIR, "gui.json"),
+                    {"pid": os.getpid(), "port": PORT, "host": HOST,
+                     "started": core._now()})
+
+    print(f"[*] OpenCode Station {core.APP_VERSION} · {core.PLATFORM}")
+    print(f"    Данные: {core.STATE_DIR}")
+    print(f"    GUI:    http://localhost:{PORT}")
+    try:
+        server = ThreadingHTTPServer((HOST, PORT), GUIRequestHandler)
+    except OSError as exc:
+        print(f"[!] Не удалось занять порт {PORT}: {exc}")
+        return 1
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping server...")
+        print("\n[i] Остановка сервера...")
+    finally:
         server.server_close()
+        if _TERMINAL_STARTED:
+            core.stop_terminal()
+        try:
+            os.remove(os.path.join(core.RUN_DIR, "gui.json"))
+        except Exception:
+            pass
+    return 0
+
 
 if __name__ == "__main__":
-    run()
+    raise SystemExit(run())

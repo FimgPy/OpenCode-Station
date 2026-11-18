@@ -1,11 +1,23 @@
 # OpenCode CMD Environment configuration
 # Сделано Антоном Ковалкиным все права защищены.
 
+# Installed layout: /usr/local/bin.  Portable repo: $OPENCODE_STATION_ROOT/bin.
+STATION_BIN="${OPENCODE_STATION_ROOT:+$OPENCODE_STATION_ROOT/bin}"
+if [ ! -d "$STATION_BIN" ]; then
+    STATION_BIN="/usr/local/bin"
+fi
+
 # Prompt generator (Displays [env] D:\path> or D:\path>)
 get_cmd_prompt() {
     local prefix=""
     if [ -n "$OPENCODE_ENV" ] && [ "$OPENCODE_ENV" != "default" ]; then
         prefix="[${OPENCODE_ENV}] "
+    fi
+    # CMD-style drive letters only make sense inside WSL.  Native Linux and
+    # macOS get a normal POSIX prompt.
+    if [ -z "${WSL_DISTRO_NAME:-}" ]; then
+        echo -n "${prefix}${PWD}> "
+        return
     fi
     local p="$PWD"
     if [[ "$p" == "/mnt/d/OpenCode-Station_Package/workspace"* ]]; then
@@ -48,11 +60,11 @@ PROMPT_COMMAND=set_cmd_ps1
 export PS1='$(get_cmd_prompt)> '
 
 # Drive switching
-d:() { 
+d:() {
     if [ -n "$OPENCODE_ENV" ] && [ "$OPENCODE_ENV" != "default" ]; then
-        builtin cd "/mnt/d/OpenCode-Station_Package/workspace/$OPENCODE_ENV" 2>/dev/null || builtin cd /mnt/d/OpenCode-Station_Package/workspace
+        builtin cd "/mnt/d/OpenCode-Station_Package/workspace/$OPENCODE_ENV" 2>/dev/null || builtin cd /mnt/d/OpenCode-Station_Package/workspace 2>/dev/null || builtin cd /mnt/d
     else
-        builtin cd /mnt/d/OpenCode-Station_Package/workspace/default 2>/dev/null || builtin cd /mnt/d/OpenCode-Station_Package/workspace
+        builtin cd /mnt/d/OpenCode-Station_Package/workspace/default 2>/dev/null || builtin cd /mnt/d/OpenCode-Station_Package/workspace 2>/dev/null || builtin cd /mnt/d
     fi
 }
 D:() { d:; }
@@ -90,8 +102,11 @@ cd() {
     elif [[ "$target" =~ ^[Cc]:$ ]]; then
         target="/mnt/c"
     elif [ "$target" = "~" ] || [ "$target" = "~/workspace" ]; then
-        d:
-        return 0
+        if [ -n "$OPENCODE_ENV" ] && [ "$OPENCODE_ENV" != "default" ] && [ -d "/var/envs/${OPENCODE_ENV}/workspace" ]; then
+            target="/var/envs/${OPENCODE_ENV}/workspace"
+        else
+            target="/home/dev/workspace/default"
+        fi
     fi
     
     builtin cd "$target"
@@ -103,7 +118,7 @@ alias cd..='builtin cd ..'
 cls() { clear; }
 
 dir() {
-    /usr/local/bin/cmd-dir "$@"
+    \/cmd-dir "$@"
 }
 
 type() {
@@ -193,10 +208,10 @@ ver() {
 }
 
 explorer() {
-    /usr/local/bin/explorer-cmd "$@"
+    \/win-open "$@"
 }
 open() {
-    /usr/local/bin/explorer-cmd "$@"
+    \/win-open "$@"
 }
 
 export() {
@@ -210,149 +225,82 @@ export() {
     fi
     case "$1" in
         all|ALL|select|SELECT|help|HELP|--help|-h|/?)
-            /usr/local/bin/export-win "$@"
+            \/export-win "$@"
             ;;
         *)
-            /usr/local/bin/export-win "$@"
+            \/export-win "$@"
             ;;
     esac
 }
 
 ai() {
-    /usr/local/bin/ai "$@"
+    \/ai "$@"
 }
 ask() {
-    /usr/local/bin/ai "$@"
+    \/ai "$@"
 }
 
 tree() {
-    /usr/local/bin/cmd-tree "$@"
+    \/cmd-tree "$@"
 }
 
 linux() {
-    /usr/local/bin/linux-dirs "$@"
+    \/linux-dirs "$@"
 }
 ldir() {
-    /usr/local/bin/linux-dirs "$@"
+    \/linux-dirs "$@"
 }
 
 opencode() {
-    /usr/local/bin/opencode "$@"
+    \/opencode "$@"
 }
 
 proxy() {
+    \/proxy-tool "$@"
+    local rc=$?
     local cfg="$HOME/.proxy_config"
     local default_no_proxy="localhost,127.0.0.1,::1,local.home"
-    case "$1" in
-        on|ON)
-            if [ -f "$cfg" ]; then
-                source "$cfg"
-            fi
-            if [ -n "$PROXY_URL" ]; then
-                echo 'PROXY_ENABLED="yes"' > "$cfg"
-                echo "PROXY_URL=\"$PROXY_URL\"" >> "$cfg"
-                export http_proxy="$PROXY_URL"
-                export https_proxy="$PROXY_URL"
-                export all_proxy="$PROXY_URL"
-                export HTTP_PROXY="$PROXY_URL"
-                export HTTPS_PROXY="$PROXY_URL"
-                export ALL_PROXY="$PROXY_URL"
-                export no_proxy="$default_no_proxy"
-                export NO_PROXY="$default_no_proxy"
-                echo "proxy = \"$PROXY_URL\"" > "$HOME/.curlrc" 2>/dev/null || true
-                echo -e "\033[1;32m[✓] Прокси включен:\033[0m $PROXY_URL"
-                echo -e "\033[0;37mИсключения (local loopback):\033[0m $default_no_proxy"
-                /usr/local/bin/myip
-            else
-                echo "[!] URL прокси не задан. Используйте: proxy set <url>"
-            fi
-            ;;
-        off|OFF)
-            if [ -f "$cfg" ]; then
-                source "$cfg"
-            fi
-            echo 'PROXY_ENABLED="no"' > "$cfg"
-            echo "PROXY_URL=\"${PROXY_URL:-}\"" >> "$cfg"
+    if [ -f "$cfg" ]; then
+        PROXY_ENABLED=""
+        PROXY_URL=""
+        . "$cfg" 2>/dev/null
+        if [ "$PROXY_ENABLED" = "yes" ] && [ -n "$PROXY_URL" ]; then
+            export http_proxy="$PROXY_URL"
+            export https_proxy="$PROXY_URL"
+            export all_proxy="$PROXY_URL"
+            export HTTP_PROXY="$PROXY_URL"
+            export HTTPS_PROXY="$PROXY_URL"
+            export ALL_PROXY="$PROXY_URL"
+        else
             unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
-            export no_proxy="$default_no_proxy"
-            export NO_PROXY="$default_no_proxy"
-            rm -f "$HOME/.curlrc" 2>/dev/null || true
-            echo -e "\033[1;33m[✓] Прокси отключен. Используется прямое подключение.\033[0m"
-            /usr/local/bin/myip
-            ;;
-        set|SET)
-            if [ -z "$2" ]; then
-                echo "Использование: proxy set <url>"
-                echo "Примеры:"
-                echo "  proxy set http://127.0.0.1:7890"
-                echo "  proxy set socks5://127.0.0.1:7890"
-                echo "  proxy set socks5://user:pass@host:port"
-                return 1
-            fi
-            local new_url="$2"
-            echo 'PROXY_ENABLED="yes"' > "$cfg"
-            echo "PROXY_URL=\"$new_url\"" >> "$cfg"
-            export http_proxy="$new_url"
-            export https_proxy="$new_url"
-            export all_proxy="$new_url"
-            export HTTP_PROXY="$new_url"
-            export HTTPS_PROXY="$new_url"
-            export ALL_PROXY="$new_url"
-            export no_proxy="$default_no_proxy"
-            export NO_PROXY="$default_no_proxy"
-            echo "proxy = \"$new_url\"" > "$HOME/.curlrc" 2>/dev/null || true
-            echo -e "\033[1;32m[✓] Прокси установлен и активирован:\033[0m $new_url"
-            echo -e "\033[0;37mИсключения (local loopback):\033[0m $default_no_proxy"
-            /usr/local/bin/myip
-            ;;
-        status|STATUS|"")
-            echo "=================================================="
-            echo "           Статус прокси в консоли                "
-            echo "=================================================="
-            if [ -n "$http_proxy" ]; then
-                echo "Статус в сессии:  АКТИВЕН"
-                echo "Адрес:            $http_proxy"
-                echo "Исключения:       $default_no_proxy"
-            else
-                echo "Статус в сессии:  ОТКЛЮЧЕН (Прямое подключение)"
-            fi
-            echo "Сохраненный URL:  ${PROXY_URL:-не задан}"
-            echo "--------------------------------------------------"
-            echo "Команды:"
-            echo "  proxy set <url>   -> Установить адрес прокси"
-            echo "  proxy on          -> Включить прокси"
-            echo "  proxy off         -> Отключить прокси"
-            echo "  proxy status      -> Показать статус"
-            echo "  myip              -> Проверить текущий внешний IP"
-            echo "=================================================="
-            ;;
-        *)
-            echo "Использование: proxy {set <url> | on | off | status}"
-            ;;
-    esac
+        fi
+    fi
+    export no_proxy="$default_no_proxy"
+    export NO_PROXY="$default_no_proxy"
+    return $rc
 }
 
 myip() {
-    /usr/local/bin/myip "$@"
+    \/myip "$@"
 }
 ip() {
-    /usr/local/bin/myip "$@"
+    \/myip "$@"
 }
 
 # Environment management commands
 env() {
     if [ $# -eq 0 ]; then
-        /usr/local/bin/env-mgr list
+        \/env-mgr list
     else
         case "$1" in
             list|ls|create|new|add|switch|use|enter|select|clean|reset|delete|remove|rm|del|purge|clear|clear-all|info|status|whoami|help|--help|-h|/?)
-                /usr/local/bin/env-mgr "$@"
+                \/env-mgr "$@"
                 ;;
             *)
                 if [[ "$1" == *"="* ]]; then
                     /usr/bin/env "$@"
                 else
-                    /usr/local/bin/env-mgr "$@"
+                    \/env-mgr "$@"
                 fi
                 ;;
         esac
@@ -360,23 +308,23 @@ env() {
 }
 
 envs() {
-    /usr/local/bin/env-mgr list
+    \/env-mgr list
 }
 
 switch() {
-    /usr/local/bin/env-mgr switch "$@"
+    \/env-mgr switch "$@"
 }
 
 help() {
     if [ $# -eq 0 ]; then
-        /usr/local/bin/help
+        \/help
     else
         case "$1" in
-            dir|DIR) /usr/local/bin/cmd-dir /? ;;
-            export|EXPORT) /usr/local/bin/export-win help ;;
-            linux|LINUX) /usr/local/bin/linux-dirs --help ;;
-            tree|TREE) /usr/local/bin/cmd-tree --help ;;
-            env|ENV) /usr/local/bin/env-mgr help ;;
+            dir|DIR) \/cmd-dir /? ;;
+            export|EXPORT) \/export-win help ;;
+            linux|LINUX) \/linux-dirs --help ;;
+            tree|TREE) \/cmd-tree --help ;;
+            env|ENV) \/env-mgr help ;;
             proxy|PROXY) proxy status ;;
             myip|MYIP|ip|IP) myip ;;
             *) builtin help "$@" 2>/dev/null || echo "Справка по команде '$1' недоступна. Введите help для списка команд." ;;
@@ -389,7 +337,7 @@ command_not_found_handle() {
     local cmd="$1"
     local cmd_lower=$(echo "$cmd" | tr '[:upper:]' '[:lower:]')
     
-    if [ "$cmd_lower" != "$cmd" ] && type "$cmd_lower" >/dev/null 2>&1; then
+    if [ "$cmd_lower" != "$cmd" ] && builtin type "$cmd_lower" >/dev/null 2>&1; then
         shift
         "$cmd_lower" "$@"
         return $?

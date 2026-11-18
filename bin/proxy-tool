@@ -1,321 +1,277 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Утилита управления сетевыми прокси (локальными и глобальными) и каталогом рабочих прокси.
-Сделано Антоном Ковалкиным все права защищены.
+Portable proxy manager for OpenCode Station.
+
+Every proxy is validated against the real OpenCode endpoints with strict
+TLS verification before it can be enabled.  Proxies that MITM TLS are
+rejected with a clear explanation instead of breaking OpenCode with
+``SELF_SIGNED_CERT_IN_CHAIN``.
+
+Made by Anton Kovalkin. All rights reserved.
 """
-import sys
 import os
-import json
-import time
 import subprocess
-import urllib.request
-import urllib.parse
+import sys
 
-GLOBAL_PROXY_FILE = "/var/envs/global_proxy.json"
-MANIFEST_FILE = "/var/envs/manifest.json"
-CATALOG_FILES = [
-    "/var/envs/proxies_catalog.json",
-    "/mnt/d/OpenCode-Station_Package/config/proxies_catalog.json"
-]
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import station_core as core  # noqa: E402
 
-HOME_DIR = os.environ.get("HOME", "/home/dev")
-LOCAL_CONFIG = os.path.join(HOME_DIR, ".proxy_config")
-CURLRC = os.path.join(HOME_DIR, ".curlrc")
-DEFAULT_NO_PROXY = "localhost,127.0.0.1,::1,local.home"
+GREEN = "\033[1;32m"
+CYAN = "\033[1;36m"
+YELLOW = "\033[1;33m"
+RED = "\033[1;31m"
+PURPLE = "\033[1;35m"
+GRAY = "\033[0;37m"
+RESET = "\033[0m"
 
-# ANSI Colors
-CLR_GREEN = "\033[1;32m"
-CLR_CYAN = "\033[1;36m"
-CLR_YELLOW = "\033[1;33m"
-CLR_RED = "\033[1;31m"
-CLR_PURPLE = "\033[1;35m"
-CLR_GRAY = "\033[0;37m"
-CLR_RESET = "\033[0m"
 
-def get_global_proxy():
-    if os.path.exists(GLOBAL_PROXY_FILE):
-        try:
-            with open(GLOBAL_PROXY_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {"enabled": False, "url": ""}
+def _env():
+    name = core.get_active_env_name()
+    home, _ = core.env_paths(name)
+    return name, home
 
-def set_global_proxy(url, enabled=True, apply_all=True):
-    url = (url or "").strip()
-    if url and "://" not in url:
-        url = f"http://{url}"
-    cfg = {"enabled": bool(enabled), "url": url}
-    try:
-        os.makedirs(os.path.dirname(GLOBAL_PROXY_FILE), exist_ok=True)
-        with open(GLOBAL_PROXY_FILE, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=2, ensure_ascii=False)
-    except Exception:
-        pass
 
-    # Update manifest and all environments
-    if os.path.exists(MANIFEST_FILE):
-        try:
-            with open(MANIFEST_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            data["global_proxy"] = cfg
-            if apply_all:
-                for ename, einfo in data.get("environments", {}).items():
-                    einfo["proxy_url"] = url
-                    einfo["proxy_enabled"] = bool(enabled)
-                    h = einfo.get("home", "/home/dev")
-                    cf = os.path.join(h, ".proxy_config")
-                    try:
-                        state = "yes" if enabled else "no"
-                        with open(cf, "w", encoding="utf-8") as f:
-                            f.write(f'PROXY_ENABLED="{state}"\nPROXY_URL="{url}"\n')
-                    except Exception:
-                        pass
-            with open(MANIFEST_FILE, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-        except Exception:
-            pass
+def _local():
+    _, home = _env()
+    enabled, url, is_global = core.read_proxy_config(home)
+    return {"enabled": enabled, "url": url, "is_global": is_global}
 
-    # Ensure current environment home is also updated
-    try:
-        set_local_proxy(url, enabled=enabled)
-    except Exception:
-        pass
 
-    # Profile script
-    prof_file = "/etc/profile.d/global_proxy.sh"
-    try:
-        if enabled and url:
-            with open(prof_file, "w", encoding="utf-8") as f:
-                f.write(f'''# Global proxy configuration
-# Сделано Антоном Ковалкиным все права защищены.
-export HTTP_PROXY="{url}"
-export HTTPS_PROXY="{url}"
-export http_proxy="{url}"
-export https_proxy="{url}"
-export ALL_PROXY="{url}"
-export all_proxy="{url}"
-export NO_PROXY="{DEFAULT_NO_PROXY}"
-export no_proxy="{DEFAULT_NO_PROXY}"
-''')
-        else:
-            if os.path.exists(prof_file):
-                os.remove(prof_file)
-    except Exception:
-        pass
-    return cfg
+def _validate_or_refuse(url, force=False):
+    if not url:
+        return True
+    print(f"[*] Проверка прокси (IP + строгий TLS opencode.ai): {url}")
+    res = core.test_proxy_connectivity(url, timeout=7)
+    if res.get("success"):
+        print(f"{GREEN}[✓] Прокси пригоден: {res.get('ip')} · {res.get('country')} "
+              f"({res.get('city','')}) · {res.get('latency')} ms · TLS OK{RESET}")
+        return True
+    print(f"{RED}[✗] Прокси отклонён: {res.get('error') or 'недоступен'}{RESET}")
+    if res.get("tls_ok") is False:
+        print("    Причина: прокси подменяет TLS-сертификат. OpenCode через него")
+        print("    падает с ошибкой SELF_SIGNED_CERT_IN_CHAIN. Выберите другой прокси.")
+    if force:
+        print(f"{YELLOW}[!] --force: сохраняю несмотря на ошибку (OpenCode может не работать).{RESET}")
+        return True
+    return False
 
-def get_local_proxy():
-    enabled = False
-    url = ""
-    if os.path.exists(LOCAL_CONFIG):
-        try:
-            with open(LOCAL_CONFIG, "r", encoding="utf-8") as f:
-                for line in f:
-                    if line.startswith("PROXY_ENABLED="):
-                        enabled = "yes" in line.lower()
-                    elif line.startswith("PROXY_URL="):
-                        url = line.split("=", 1)[1].strip().strip('"\'')
-        except Exception:
-            pass
-    return {"enabled": enabled, "url": url}
 
-def set_local_proxy(url, enabled=True):
-    url = (url or "").strip()
-    if url and "://" not in url:
-        url = f"http://{url}"
-    state = "yes" if enabled else "no"
-    try:
-        with open(LOCAL_CONFIG, "w", encoding="utf-8") as f:
-            f.write(f'PROXY_ENABLED="{state}"\nPROXY_URL="{url}"\n')
-        if enabled and url:
-            with open(CURLRC, "w", encoding="utf-8") as f:
-                f.write(f'proxy = "{url}"\n')
-        else:
-            if os.path.exists(CURLRC):
-                os.remove(CURLRC)
-    except Exception as e:
-        print(f"{CLR_RED}[!] Ошибка записи конфигурации: {e}{CLR_RESET}")
+def _set_local(url, enabled=True, force=False):
+    name, home = _env()
+    url = core.normalize_proxy(url)
+    if enabled and not _validate_or_refuse(url, force):
+        return False
+    core.write_proxy_config(home, url, enabled)
+    data = core.ensure_manifest()
+    info = data.get("environments", {}).get(name)
+    if info is not None:
+        info["proxy_url"] = url if enabled else ""
+        info["proxy_enabled"] = bool(enabled)
+        core.save_manifest(data)
+    if enabled and url and not core.is_socks(url):
+        core.stop_bridge(name)
+    if enabled and url and core.is_socks(url):
+        bridge = core.start_bridge(name, url)
+        print(f"[i] SOCKS-мост для среды {name}: {bridge}")
+    return True
 
-def load_catalog():
-    for p in CATALOG_FILES:
-        if os.path.exists(p):
-            try:
-                with open(p, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                pass
-    return []
-
-def test_proxy(url, timeout=3.5):
-    url = (url or "").strip()
-    if url and "://" not in url:
-        url = f"http://{url}"
-    t0 = time.time()
-    try:
-        proxy_h = urllib.request.ProxyHandler({"http": url, "https": url})
-        opener = urllib.request.build_opener(proxy_h)
-        req = urllib.request.Request("http://ip-api.com/json/?fields=status,country,city,query,org", headers={"User-Agent": "curl/7.88.1"})
-        with opener.open(req, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode())
-            lat = int((time.time() - t0) * 1000)
-            if data.get("status") == "success":
-                return True, data.get("query"), data.get("country"), data.get("city"), lat
-    except Exception as e:
-        pass
-    return False, None, None, None, int((time.time() - t0) * 1000)
 
 def cmd_status():
-    local = get_local_proxy()
-    glob = get_global_proxy()
-
-    print("==============================================================================")
-    print("                     Статус прокси-серверов OpenCode Station                  ")
-    print("                [Сделано Антоном Ковалкиным все права защищены]               ")
-    print("==============================================================================")
-
-    # 1. Global
-    print(f"\n{CLR_PURPLE}[Глобальный режим (для всех чатов и новых сред)]{CLR_RESET}")
+    name, home = _env()
+    local = _local()
+    glob = core.get_global_proxy()
+    print("=" * 80)
+    print("                     Статус прокси OpenCode Station")
+    print("                Сделано Антоном Ковалкиным, все права защищены.")
+    print("=" * 80)
+    print(f"\n{PURPLE}[Глобальный fallback]{RESET}")
     if glob.get("enabled") and glob.get("url"):
-        print(f"  Статус          : {CLR_GREEN}ВКЛЮЧЕН (Активен для всех сред){CLR_RESET}")
-        print(f"  URL прокси      : {CLR_CYAN}{glob['url']}{CLR_RESET}")
+        print(f"  Статус: {GREEN}ВКЛЮЧЕН{RESET}  URL: {CYAN}{glob['url']}{RESET}")
+        print("  (применяется только к средам без собственного .proxy_config)")
     else:
-        print(f"  Статус          : {CLR_GRAY}ВЫКЛЮЧЕН (Прямое интернет-подключение){CLR_RESET}")
-        if glob.get("url"):
-            print(f"  Сохраненный URL : {glob['url']}")
-
-    # 2. Local
-    print(f"\n{CLR_CYAN}[Текущая среда: {os.environ.get('OPENCODE_ENV', 'текущий терминал')}]{CLR_RESET}")
+        print(f"  Статус: {GRAY}ВЫКЛЮЧЕН{RESET}")
+    print(f"\n{CYAN}[Текущая среда: {name}]{RESET}")
     if local.get("enabled") and local.get("url"):
-        print(f"  Статус среды    : {CLR_GREEN}ВКЛЮЧЕН (Индивидуальный){CLR_RESET}")
-        print(f"  URL прокси      : {CLR_CYAN}{local['url']}{CLR_RESET}")
-    elif glob.get("enabled") and glob.get("url"):
-        print(f"  Статус среды    : {CLR_GREEN}ВКЛЮЧЕН (Наследует глобальный прокси){CLR_RESET}")
-        print(f"  URL прокси      : {CLR_CYAN}{glob['url']}{CLR_RESET}")
+        print(f"  Статус: {GREEN}ВКЛЮЧЕН{RESET}  URL: {CYAN}{local['url']}{RESET}")
     else:
-        print(f"  Статус среды    : {CLR_GRAY}ВЫКЛЮЧЕН (Прямое интернет-подключение){CLR_RESET}")
+        print(f"  Статус: {GRAY}ВЫКЛЮЧЕН (прямое подключение){RESET}")
         if local.get("url"):
-            print(f"  Сохраненный URL : {local['url']}")
+            print(f"  Сохранённый URL: {local['url']}")
+    print("\n" + "-" * 80)
+    print("  proxy list                 — каталог проверенных прокси")
+    print("  proxy select <N>           — выбрать прокси для текущей среды")
+    print("  proxy set <url> [--force]  — задать и проверить прокси")
+    print("  proxy on / off             — включить / выключить прокси среды")
+    print("  proxy global status|on|off — глобальный fallback")
+    print("  proxy test <N|url>         — IP + строгий TLS тест")
+    print("=" * 80)
 
-    print("\n------------------------------------------------------------------------------")
-    print("Быстрые команды:")
-    print("  proxy list               -> Показать встроенный каталог рабочих прокси")
-    print("  proxy select <N>         -> Выбрать прокси #N для текущей среды")
-    print("  proxy select --global <N> -> Выбрать прокси #N глобально для всех чатов")
-    print("  proxy on / proxy off     -> Включить / Выключить прокси в этой среде")
-    print("  proxy global on / off    -> Включить / Выключить глобальный прокси")
-    print("  myip                     -> Проверить текущий внешний IP адрес")
-    print("==============================================================================")
 
 def cmd_list():
-    catalog = load_catalog()
+    catalog = core.get_proxies_catalog()
     if not catalog:
-        print(f"{CLR_YELLOW}[!] Каталог прокси пуст или не найден.{CLR_RESET}")
+        print(f"{YELLOW}Каталог пуст. Выполните: proxy refresh{RESET}")
         return
-
-    print("==================================================================================================")
-    print("                    Встроенный каталог проверенных рабочих прокси                                 ")
-    print("                           [Сделано Антоном Ковалкиным]                                           ")
-    print("==================================================================================================")
-    print(f"{'#':<4} {'Страна / Локация':<28} {'Тип':<6} {'Пинг':<10} {'URL Прокси':<36}")
-    print("--------------------------------------------------------------------------------------------------")
-
-    glob = get_global_proxy()
-    glob_url = glob.get("url", "") if glob.get("enabled") else ""
-    local = get_local_proxy()
-    loc_url = local.get("url", "") if local.get("enabled") else ""
-
+    _, home = _env()
+    enabled, local_url, _ = core.read_proxy_config(home)
+    print("=" * 112)
+    print("                    Каталог проверенных рабочих прокси (Европа)")
+    print("                    Сделано Антоном Ковалкиным, все права защищены.")
+    print("=" * 112)
+    print(f"{'#':<4} {'Страна / город':<30} {'Тип':<6} {'Пинг':<9} {'TLS':<5} URL")
+    print("-" * 112)
     for idx, item in enumerate(catalog, 1):
         country = item.get("country", "Неизвестно")
         city = item.get("city", "")
-        loc_str = f"{country} ({city})" if city else country
-        if len(loc_str) > 26: loc_str = loc_str[:25] + "…"
-        ptype = item.get("type", "HTTP")
+        loc = f"{country} ({city})" if city else country
+        tls = "OK" if item.get("tls_ok", item.get("working", False)) else "BAD"
+        mark = f" {CYAN}[ENV]{RESET}" if enabled and item.get("url") == local_url else ""
         lat = item.get("latency", 0)
-        purl = item.get("url", "")
+        color = GREEN if lat and lat < 1200 else (YELLOW if lat and lat < 2500 else GRAY)
+        print(f"{idx:<4} {loc[:30]:<30} {item.get('type','HTTP'):<6} "
+              f"{color}{lat} ms{RESET:<4} {tls:<5} {CYAN}{item.get('url','')}{RESET}{mark}")
+    print("-" * 112)
+    print("  proxy select <N>  — применить к текущей среде    proxy test <N> — проверить")
+    print("=" * 112)
 
-        lat_color = CLR_GREEN if lat < 1200 else (CLR_YELLOW if lat < 2500 else CLR_GRAY)
 
-        mark = ""
-        if purl == glob_url:
-            mark = f" {CLR_PURPLE}[GLOBAL]{CLR_RESET}"
-        elif purl == loc_url:
-            mark = f" {CLR_CYAN}[ENV]{CLR_RESET}"
-
-        print(f"{idx:<4} {loc_str:<28} {ptype:<6} {lat_color}{lat} ms{CLR_RESET:<5} {CLR_CYAN}{purl}{CLR_RESET}{mark}")
-
-    print("--------------------------------------------------------------------------------------------------")
-    print("Применение в один клик:")
-    print("  proxy select <номер>          -> Применить для текущей среды")
-    print("  proxy select --global <номер> -> Сделать глобальным для всех чатов")
-    print("  proxy test <номер или URL>    -> Протестировать отклик прямо сейчас")
-    print("==================================================================================================")
-
-def cmd_select(num_str, is_global=False):
-    catalog = load_catalog()
+def cmd_select(number, is_global=False):
+    catalog = core.get_proxies_catalog()
     try:
-        idx = int(num_str) - 1
-        if idx < 0 or idx >= len(catalog):
-            print(f"{CLR_RED}[!] Неверный номер прокси. Используйте число от 1 до {len(catalog)}.{CLR_RESET}")
-            return
-    except ValueError:
-        print(f"{CLR_RED}[!] Укажите корректный номер прокси из 'proxy list'.{CLR_RESET}")
-        return
-
-    item = catalog[idx]
+        item = catalog[int(number) - 1]
+    except Exception:
+        print(f"{RED}Неверный номер. Доступно 1..{len(catalog)}.{RESET}")
+        return False
     url = item.get("url", "")
-    country = item.get("country", "")
-
     if is_global:
-        set_global_proxy(url, enabled=True, apply_all=True)
-        print(f"\n{CLR_GREEN}[✓] Глобальный прокси установлен для всех чатов и сред:{CLR_RESET}")
-        print(f"    URL:      {CLR_CYAN}{url}{CLR_RESET}")
-        print(f"    Локация:  {country}")
-        print(f"    Действие: Все существующие и новые среды теперь работают через этот прокси.\n")
+        if not _validate_or_refuse(url):
+            return False
+        cfg = core.set_global_proxy(url, enabled=True, apply_to_all_envs=False)
+        print(f"{GREEN}[✓] Глобальный fallback: {cfg['url']}{RESET}")
     else:
-        set_local_proxy(url, enabled=True)
-        print(f"\n{CLR_GREEN}[✓] Прокси установлен для текущей среды:{CLR_RESET}")
-        print(f"    URL:      {CLR_CYAN}{url}{CLR_RESET}")
-        print(f"    Локация:  {country}\n")
+        if not _set_local(url, True):
+            return False
+        print(f"{GREEN}[✓] Прокси среды: {url}{RESET}")
+    subprocess.run([sys.executable, os.path.join(core.BIN_DIR, "myip")])
+    return True
 
-    # Run myip check
-    subprocess.run(["/usr/local/bin/myip"])
 
 def cmd_test(target):
     if target.isdigit():
-        catalog = load_catalog()
+        catalog = core.get_proxies_catalog()
         idx = int(target) - 1
-        if 0 <= idx < len(catalog):
-            target = catalog[idx].get("url", "")
-        else:
-            print(f"{CLR_RED}[!] Неверный номер прокси.{CLR_RESET}")
+        if not (0 <= idx < len(catalog)):
+            print(f"{RED}Неверный номер прокси.{RESET}")
             return
-
-    print(f"[*] Проверка доступности прокси: {target} ...")
-    ok, ip, country, city, lat = test_proxy(target)
-    if ok:
-        print(f"{CLR_GREEN}[✓] Прокси успешно отвечает!{CLR_RESET}")
-        print(f"    Внешний IP:  {CLR_CYAN}{ip}{CLR_RESET}")
-        print(f"    Локация:     {country} ({city})")
-        print(f"    Задержка:    {lat} ms")
+        target = catalog[idx].get("url", "")
+    if not target:
+        target = _local().get("url") or core.get_global_proxy().get("url", "")
+    if not target:
+        print("Укажите номер или URL: proxy test <N|http://host:port>")
+        return
+    res = core.test_proxy_connectivity(target, timeout=8)
+    if res.get("success"):
+        print(f"{GREEN}[✓] Прокси работает{RESET}")
+        print(f"    IP: {res.get('ip')} | {res.get('country')} ({res.get('city','')})")
+        print(f"    Организация: {res.get('org','-')} | Задержка: {res.get('latency')} ms")
+        print(f"    TLS: OK (сертификат opencode.ai проверен)")
     else:
-        print(f"{CLR_RED}[✗] Прокси не отвечает или таймаут ({lat} ms).{CLR_RESET}")
+        print(f"{RED}[✗] Прокси не прошёл проверку{RESET}")
+        print(f"    {res.get('error')}")
+        for chk in res.get("checks", []):
+            print(f"    {chk.get('name')}: HTTP {chk.get('http')} rc={chk.get('rc')} {chk.get('error','')}")
+
+
+def cmd_refresh():
+    catalog = core.get_proxies_catalog()
+    if not catalog:
+        print("Каталог пуст — нечего проверять.")
+        return
+    print(f"[*] Проверяю {len(catalog)} прокси (IP + строгий TLS)...")
+    import concurrent.futures
+    updated = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
+        futs = {ex.submit(core.test_proxy_connectivity, p.get("url", ""), 8): p for p in catalog}
+        for fut in concurrent.futures.as_completed(futs):
+            old = dict(futs[fut])
+            try:
+                res = fut.result()
+            except Exception as exc:
+                res = {"success": False, "error": str(exc)}
+            if res.get("success"):
+                old.update({
+                    "ip": res.get("ip", old.get("ip", "")),
+                    "country": res.get("country", old.get("country", "")),
+                    "country_code": res.get("country_code", old.get("country_code", "")),
+                    "city": res.get("city", old.get("city", "")),
+                    "org": res.get("org", old.get("org", "")),
+                    "latency": res.get("latency", old.get("latency", 999)),
+                    "type": res.get("type", old.get("type", "HTTP")),
+                    "tls_ok": True,
+                    "working": True,
+                    "error": "",
+                })
+                print(f"  [OK] {old.get('url')} {old.get('ip')} {old.get('country')} {old.get('latency')}ms")
+            else:
+                old.update({"working": False, "tls_ok": False,
+                            "error": res.get("error", "unreachable")})
+                print(f"  [--] {old.get('url')} {res.get('error', '')}")
+            updated.append(old)
+    updated.sort(key=lambda x: (not x.get("working"), x.get("latency", 9999)))
+    core.save_proxies_catalog(updated)
+    print(f"[+] Готово: рабочих {sum(1 for x in updated if x.get('working'))} из {len(updated)}")
+
+
+def cmd_global(args):
+    sub = args[0].lower() if args else "status"
+    g = core.get_global_proxy()
+    if sub in ("status", ""):
+        print(f"Глобальный fallback: {'ВКЛЮЧЕН' if g.get('enabled') else 'ВЫКЛЮЧЕН'}")
+        print(f"URL: {g.get('url') or 'не задан'}")
+    elif sub == "on":
+        if not g.get("url"):
+            print("Сначала: proxy global set <url>")
+            return
+        if not _validate_or_refuse(g["url"]):
+            return
+        core.set_global_proxy(g["url"], enabled=True, apply_to_all_envs=False)
+        print(f"{GREEN}[✓] Глобальный fallback включён{RESET}")
+    elif sub == "off":
+        core.set_global_proxy(g.get("url", ""), enabled=False, apply_to_all_envs=False)
+        print(f"{YELLOW}[✓] Глобальный fallback выключен{RESET}")
+    elif sub == "set":
+        if len(args) < 2:
+            print("Использование: proxy global set <url> [--all]")
+            return
+        url = args[1]
+        if not _validate_or_refuse(url):
+            return
+        apply_all = "--all" in args
+        core.set_global_proxy(url, enabled=True, apply_to_all_envs=apply_all)
+        print(f"{GREEN}[✓] Глобальный fallback: {url}{RESET}"
+              f"{' (применён ко всем средам)' if apply_all else ''}")
+    elif sub == "select":
+        if len(args) < 2:
+            print("Использование: proxy global select <N>")
+            return
+        cmd_select(args[1], is_global=True)
+    else:
+        print("Использование: proxy global {set <url> [--all] | on | off | status | select <N>}")
+
 
 def main():
     args = sys.argv[1:]
-    if not args or args[0] in ["status", "STATUS"]:
+    if not args or args[0].lower() in ("status", "info"):
         cmd_status()
-        return
-
+        return 0
     cmd = args[0].lower()
-
     if cmd == "list":
         cmd_list()
     elif cmd == "select":
         if len(args) < 2:
             print("Использование: proxy select [--global] <номер>")
-            return
+            return 1
         if args[1] == "--global" and len(args) >= 3:
             cmd_select(args[2], is_global=True)
         elif len(args) >= 3 and args[2] == "--global":
@@ -323,69 +279,38 @@ def main():
         else:
             cmd_select(args[1], is_global=False)
     elif cmd == "test":
-        target = args[1] if len(args) > 1 else ""
-        if not target:
-            loc = get_local_proxy()
-            target = loc.get("url") or get_global_proxy().get("url")
-            if not target:
-                print("Укажите номер или URL: proxy test <номер или http://...>")
-                return
-        cmd_test(target)
-    elif cmd == "global":
-        sub = args[1].lower() if len(args) > 1 else "status"
-        if sub in ["status", ""]:
-            g = get_global_proxy()
-            print(f"Глобальный прокси: {'ВКЛЮЧЕН' if g.get('enabled') else 'ВЫКЛЮЧЕН'}")
-            print(f"URL: {g.get('url', 'не задан')}")
-        elif sub == "on":
-            g = get_global_proxy()
-            if not g.get("url"):
-                print("URL глобального прокси не задан. Задайте: proxy global set <url>")
-                return
-            set_global_proxy(g["url"], enabled=True, apply_all=True)
-            print(f"{CLR_GREEN}[✓] Глобальный прокси активирован для всех сред!{CLR_RESET}")
-            subprocess.run(["/usr/local/bin/myip"])
-        elif sub == "off":
-            g = get_global_proxy()
-            set_global_proxy(g.get("url", ""), enabled=False, apply_all=True)
-            print(f"{CLR_YELLOW}[✓] Глобальный прокси отключен для всех сред.{CLR_RESET}")
-            subprocess.run(["/usr/local/bin/myip"])
-        elif sub == "set":
-            if len(args) < 3:
-                print("Использование: proxy global set <url>")
-                return
-            set_global_proxy(args[2], enabled=True, apply_all=True)
-            print(f"{CLR_GREEN}[✓] Глобальный прокси установлен и активирован для всех чатов: {args[2]}{CLR_RESET}")
-            subprocess.run(["/usr/local/bin/myip"])
-        elif sub == "select":
-            if len(args) < 3:
-                print("Использование: proxy global select <номер>")
-                return
-            cmd_select(args[2], is_global=True)
-        else:
-            print("Использование: proxy global {set <url> | on | off | status | select <N>}")
+        cmd_test(args[1] if len(args) > 1 else "")
     elif cmd == "set":
         if len(args) < 2:
-            print("Использование: proxy set <url>")
-            return
-        set_local_proxy(args[1], enabled=True)
-        print(f"{CLR_GREEN}[✓] Прокси активирован для текущей среды: {args[1]}{CLR_RESET}")
-        subprocess.run(["/usr/local/bin/myip"])
+            print("Использование: proxy set <url> [--force]")
+            return 1
+        if _set_local(args[1], enabled=True, force="--force" in args):
+            print(f"{GREEN}[✓] Прокси установлен для среды {_env()[0]}{RESET}")
+            subprocess.run([sys.executable, os.path.join(core.BIN_DIR, "myip")])
     elif cmd == "on":
-        loc = get_local_proxy()
+        loc = _local()
         if not loc.get("url"):
-            print("Адрес прокси не задан. Задайте: proxy set <url> или выберите: proxy list")
-            return
-        set_local_proxy(loc["url"], enabled=True)
-        print(f"{CLR_GREEN}[✓] Прокси включен: {loc['url']}{CLR_RESET}")
-        subprocess.run(["/usr/local/bin/myip"])
+            print("Адрес не задан. Используйте: proxy set <url> или proxy select <N>")
+            return 1
+        if _set_local(loc["url"], enabled=True):
+            print(f"{GREEN}[✓] Прокси включён: {loc['url']}{RESET}")
+            subprocess.run([sys.executable, os.path.join(core.BIN_DIR, "myip")])
     elif cmd == "off":
-        loc = get_local_proxy()
-        set_local_proxy(loc.get("url", ""), enabled=False)
-        print(f"{CLR_YELLOW}[✓] Прокси отключен для текущей среды.{CLR_RESET}")
-        subprocess.run(["/usr/local/bin/myip"])
+        loc = _local()
+        _set_local(loc.get("url", ""), enabled=False)
+        print(f"{YELLOW}[✓] Прокси выключен для среды {_env()[0]}{RESET}")
+    elif cmd == "global":
+        cmd_global(args[1:])
+    elif cmd in ("refresh", "test-all"):
+        cmd_refresh()
+    elif cmd in ("clean", "clear"):
+        core.save_proxies_catalog([])
+        print("[✓] Каталог прокси очищен.")
     else:
-        print("Использование: proxy {list | select <N> | status | set <url> | on | off | global | test}")
+        print("Использование: proxy {list|select|status|set|on|off|global|test|refresh|clean}")
+        return 1
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

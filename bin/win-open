@@ -9,7 +9,7 @@ if [[ "$real" =~ ^/mnt/([a-zA-Z])/(.*) ]]; then
 elif [[ "$real" == "/mnt/"* ]]; then
     win_path="This PC"
 else
-    win_path="C:\\Users\\anton\\AppData\\Local\\wsl\\{12d6162b-feb0-4dc5-b69b-39be6464c93d}\\rootfs${real//\//\\}"
+    win_path=$(wslpath -w "$real" 2>/dev/null || echo "\\\\wsl.localhost\\Ubuntu${real//\//\\}")
 fi
 
 echo -e "\033[1;36m[Открываем проводник Windows]:\033[0m $win_path"

@@ -12,11 +12,16 @@ import time
 import signal
 import socket
 import asyncio
+import tempfile
 import urllib.parse
 import subprocess
 
 DEFAULT_PORT = 10800
-STATE_DIR = "/tmp/opencode_bridges"
+_UID = os.getuid() if hasattr(os, "getuid") else 0
+STATE_DIR = os.environ.get(
+    "OPENCODE_STATION_BRIDGE_DIR",
+    os.path.join(tempfile.gettempdir(), f"opencode_bridges_{_UID}"),
+)
 
 class SocksBridge:
     def __init__(self, socks_url, listen_host="127.0.0.1", listen_port=DEFAULT_PORT):

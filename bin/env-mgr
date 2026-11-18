@@ -1,583 +1,213 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Менеджер уникальных анонимных сред для OpenCode.
-Сделано Антоном Ковалкиным все права защищены.
+OpenCode Station environment manager (portable).
+
+Works on Linux, WSL and macOS without root.  On Windows the GUI/launchers
+delegate to WSL, while this CLI can still inspect the manifest if Python is
+available.
+
+Made by Anton Kovalkin. All rights reserved.
 """
 import os
-import sys
-import json
-import uuid
-import random
+import shlex
 import shutil
-import datetime
-import subprocess
+import sys
 
-def seed_env_opencode_config(home_dir, ws_dir=None):
-    try:
-        prov_cfg = {"provider": "opencode", "model": "", "apiKey": ""}
-        if os.path.exists("/var/envs/provider_config.json"):
-            try:
-                with open("/var/envs/provider_config.json", "r", encoding="utf-8") as f:
-                    prov_cfg = json.load(f)
-            except Exception:
-                pass
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import station_core as core  # noqa: E402
 
-        prov = prov_cfg.get("provider", "opencode")
-        model = prov_cfg.get("model", "").strip()
-        clean_model = model.split("/")[-1] if model else ""
-        api_key = prov_cfg.get("apiKey", "").strip()
 
-        opencode_json = {
-            "$schema": "https://opencode.ai/config.json"
-        }
-        if model:
-            opencode_json["model"] = model
-
-        if prov == "google" and api_key:
-            opencode_json["providers"] = {"google": {"settings": {"apiKey": api_key}}}
-        elif prov == "groq" and api_key:
-            opencode_json["providers"] = {"groq": {"settings": {"apiKey": api_key}}}
-        elif prov == "openrouter" and api_key:
-            opencode_json["providers"] = {"openrouter": {"settings": {"apiKey": api_key}}}
-        elif prov == "deepseek" and api_key:
-            opencode_json["providers"] = {"deepseek": {"settings": {"apiKey": api_key}}}
-
-        cfg_dir = os.path.join(home_dir, ".config", "opencode")
-        os.makedirs(cfg_dir, exist_ok=True)
-        with open(os.path.join(cfg_dir, "opencode.json"), "w", encoding="utf-8") as f:
-            json.dump(opencode_json, f, indent=2)
-
-        state_dir = os.path.join(home_dir, ".local", "state", "opencode")
-        os.makedirs(state_dir, exist_ok=True)
-        tui_dir = os.path.join(state_dir, "latest", "tui")
-        os.makedirs(tui_dir, exist_ok=True)
-
-        with open(os.path.join(tui_dir, "go-upsell.json"), "w", encoding="utf-8") as f:
-            json.dump({"lastSeenAt": 9999999999999, "dontShow": True}, f, indent=2)
-
-        model_json_path = os.path.join(state_dir, "model.json")
-        if clean_model:
-            with open(model_json_path, "w", encoding="utf-8") as f:
-                json.dump({
-                    "recent": [{"providerID": prov, "modelID": clean_model}],
-                    "favorite": [{"providerID": prov, "modelID": clean_model}],
-                    "variant": {}
-                }, f, indent=2)
-        else:
-            # DO NOT force any default model like big-pickle! Leave environment clean.
-            # Сделано Антоном Ковалкиным все права защищены.
-            if os.path.exists(model_json_path):
-                try: os.remove(model_json_path)
-                except Exception: pass
-
-        # Remove stale service.json for total environment isolation
-        for p in [os.path.join(state_dir, "service.json"), os.path.join(cfg_dir, "service.json")]:
-            if os.path.exists(p):
-                try: os.remove(p)
-                except Exception: pass
-    except Exception:
-        pass
-
-ENVS_DIR = "/var/envs"
-MANIFEST_FILE = os.path.join(ENVS_DIR, "manifest.json")
-WIN_PROJECTS_DIR = "/mnt/d/OpenCode-Station_Package/workspace"
-if not os.path.exists("/mnt/d"):
-    WIN_PROJECTS_DIR = "/mnt/c/OpenCode-Station_Package/workspace"
-
-RANDOM_NAMES = [
-    "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta",
-    "iota", "kappa", "lambda", "omega", "nexus", "prism", "orbit", "quantum",
-    "cyber", "stellar", "matrix", "vector", "phoenix", "titan", "aurora", "nova"
-]
-
-def ensure_manifest():
-    os.makedirs(ENVS_DIR, exist_ok=True)
-    if not os.path.exists(MANIFEST_FILE):
-        default_machine_id = uuid.uuid4().hex
-        try:
-            with open("/etc/machine-id", "r") as f:
-                content = f.read().strip()
-                if content:
-                    default_machine_id = content
-        except Exception:
-            pass
-
-        data = {
-            "active": "default",
-            "environments": {
-                "default": {
-                    "name": "default",
-                    "hostname": "workstation-node-714",
-                    "machine_id": default_machine_id,
-                    "home": "/home/dev",
-                    "workspace": "/home/dev/workspace/default",
-                    "workspace_win": "D:\\OpenCode-Station_Package\\workspace\\default",
-                    "created_at": "2026-10-29 21:00:00",
-                    "description": "Основная среда по умолчанию",
-                    "proxy_url": "",
-                    "proxy_enabled": False
-                }
-            }
-        }
-        with open(MANIFEST_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        return data
-    else:
-        try:
-            with open(MANIFEST_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {"active": "default", "environments": {}}
-
-GLOBAL_PROXY_FILE = "/var/envs/global_proxy.json"
-
-def get_global_proxy():
-    if os.path.exists(GLOBAL_PROXY_FILE):
-        try:
-            with open(GLOBAL_PROXY_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {"enabled": False, "url": ""}
-
-def save_manifest(data):
-    with open(MANIFEST_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-
-def get_active_env_name():
-    active = os.environ.get("OPENCODE_ENV")
-    if active:
-        return active
-    data = ensure_manifest()
-    return data.get("active", "default")
-
-def generate_random_name(existing):
-    candidates = [n for n in RANDOM_NAMES if n not in existing]
-    if candidates:
-        base = random.choice(candidates)
-        num = random.randint(100, 999)
-        return f"{base}-{num}"
-    return f"env-{uuid.uuid4().hex[:6]}"
-
-def create_environment(name=None):
-    data = ensure_manifest()
+def _print_env_table():
+    data = core.ensure_manifest()
     envs = data.get("environments", {})
+    active = core.get_active_env_name()
 
-    if not name:
-        name = generate_random_name(envs.keys())
-
-    name = "".join(c for c in name if c.isalnum() or c in "-_").lower()
-    if not name:
-        print("Ошибка: Некорректное имя среды.")
-        return False
-
-    if name in envs:
-        print(f"Ошибка: Среда с именем '{name}' уже существует.")
-        return False
-
-    machine_id = uuid.uuid4().hex
-    hostname_suffix = uuid.uuid4().hex[:4]
-    hostname = f"node-{name}-{hostname_suffix}"
-
-    env_path = os.path.join(ENVS_DIR, name)
-    env_home = os.path.join(env_path, "home")
-    env_workspace = os.path.join(env_path, "workspace")
-    win_workspace_path = f"D:\\OpenCode-Station_Package\\workspace\\{name}"
-
-    print(f"\n[+] Создание абсолютно новой анонимной среды: {name} ...")
-
-    # 1. Directories
-    os.makedirs(env_path, exist_ok=True)
-    os.makedirs(env_home, exist_ok=True)
-    os.makedirs(env_workspace, exist_ok=True)
-    os.makedirs(f"/mnt/d/OpenCode-Station_Package/workspace/{name}", exist_ok=True)
-
-    # 2. Machine ID and Hostname files
-    with open(os.path.join(env_path, "machine-id"), "w") as f:
-        f.write(f"{machine_id}\n")
-    with open(os.path.join(env_path, "hostname"), "w") as f:
-        f.write(f"{hostname}\n")
-
-    # 3. Create clean opencode configuration
-    opencode_cfg = os.path.join(env_home, ".config", "opencode")
-    os.makedirs(opencode_cfg, exist_ok=True)
-
-    instructions_file = os.path.join(opencode_cfg, "INSTRUCTIONS.md")
-    with open(instructions_file, "w", encoding="utf-8") as f:
-        f.write(f"""# Инструкции OpenCode для среды {name}
-* Изолированная среда: {name}
-* Уникальный Machine ID: {machine_id}
-* Хост: {hostname}
-* Рабочая папка: {win_workspace_path} (Linux: {env_workspace})
-* Создано: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-* Сделано Антоном Ковалкиным все права защищены.
-""")
-
-    # Symlink workspace
-    symlink_ws = os.path.join(env_home, "workspace")
-    if os.path.islink(symlink_ws) or os.path.exists(symlink_ws):
-        try:
-            os.remove(symlink_ws)
-        except Exception:
-            pass
-    try:
-        os.symlink(env_workspace, symlink_ws)
-    except Exception:
-        pass
-
-    # Copy bashrc template
-    env_bashrc = os.path.join(env_home, ".bashrc")
-    with open(env_bashrc, "w", encoding="utf-8") as f:
-        f.write(f"""export OPENCODE_ENV="{name}"
-export HOME="{env_home}"
-export XDG_DATA_HOME="{env_home}/.local/share"
-export XDG_CONFIG_HOME="{env_home}/.config"
-export XDG_STATE_HOME="{env_home}/.local/state"
-export XDG_CACHE_HOME="{env_home}/.cache"
-export NO_PROXY="127.0.0.1,localhost,::1"
-export no_proxy="127.0.0.1,localhost,::1"
-if [ -f "$HOME/.proxy_config" ]; then . "$HOME/.proxy_config"; fi
-if [ -f /etc/profile.d/cmd_mode.sh ]; then . /etc/profile.d/cmd_mode.sh; fi
-cd "{env_workspace}" 2>/dev/null || true
-""")
-
-    # Create README in workspace
-    win_readme = os.path.join(env_workspace, "README.md")
-    if not os.path.exists(win_readme):
-        with open(win_readme, "w", encoding="utf-8") as f:
-            f.write(f"""# Проект среды {name}
-* Папка на диске Windows: `{win_workspace_path}`
-* Среда: `{name}`
-* Сгенерированный Machine ID: `{machine_id}`
-* Дата создания: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-* Сделано Антоном Ковалкиным все права защищены.
-""")
-
-    # Fix ownership to dev:dev
-    try:
-        subprocess.run(["chown", "-R", "1000:1000", env_path], capture_output=True)
-    except Exception:
-        pass
-
-    seed_env_opencode_config(env_home, env_workspace)
-    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    gp = get_global_proxy()
-    gp_url = gp.get("url", "")
-    gp_enabled = gp.get("enabled", False)
-    if gp_enabled and gp_url:
-        p_url = gp_url
-        p_enabled = True
-        try:
-            with open(os.path.join(env_home, ".proxy_config"), "w") as f:
-                f.write(f'PROXY_ENABLED="yes"\nPROXY_URL="{p_url}"\n')
-        except Exception:
-            pass
-    else:
-        p_url = ""
-        p_enabled = False
-        try:
-            with open(os.path.join(env_home, ".proxy_config"), "w") as f:
-                f.write('PROXY_ENABLED="no"\nPROXY_URL=""\n')
-        except Exception:
-            pass
-
-    envs[name] = {
-        "name": name,
-        "hostname": hostname,
-        "machine_id": machine_id,
-        "home": env_home,
-        "workspace": env_workspace,
-        "workspace_win": win_workspace_path,
-        "created_at": now_str,
-        "description": f"Анонимная среда {name}",
-        "proxy_url": p_url,
-        "proxy_enabled": p_enabled
-    }
-    save_manifest(data)
-
-    print(f"[+] Среда успешно создана!")
-    print(f"    Имя среды      : {name}")
-    print(f"    Hostname       : {hostname}")
-    print(f"    Machine ID     : {machine_id}")
-    print(f"    Папка Windows  : {win_workspace_path}")
-    print(f"\nДля входа в эту среду введите:")
-    print(f"  env switch {name}   (или: switch {name})\n")
-    return True
-
-def list_environments():
-    data = ensure_manifest()
-    envs = data.get("environments", {})
-    active_now = get_active_env_name()
-
-    print("=========================================================================================================")
-    print("                              Список изолированных сред OpenCode                                         ")
-    print("                              Сделано Антоном Ковалкиным все права защищены.                             ")
-    print("=========================================================================================================\n")
-
+    print("=" * 112)
+    print("                              Список изолированных сред OpenCode")
+    print("                              Сделано Антоном Ковалкиным, все права защищены.")
+    print("=" * 112)
     if not envs:
-        print("  В данный момент нет созданных сред.")
-        print("  Введите 'env create' чтобы создать новую изолированную среду.\n")
+        print("  Сред пока нет. Выполните: env create\n")
         return
 
-    # Compact horizontal row
-    row_items = []
-    for name in envs.keys():
-        if name == active_now:
-            row_items.append(f"[{name}]* (активна)")
-        else:
-            row_items.append(f"[{name}]")
-    print("Среды в ряд: " + "  ──>  ".join(row_items) + "\n")
-
-    # Table
-    print(f"{'Среда':<16} {'Статус':<10} {'Hostname':<24} {'Machine ID':<14} {'Папка на диске D':<30} {'Создана'}")
-    print("-" * 105)
-
+    print(f"{'Среда':<16} {'Статус':<10} {'Hostname':<24} {'Machine ID':<14} {'Рабочая папка':<34} {'Создана'}")
+    print("-" * 112)
     for name, info in envs.items():
-        is_active = (name == active_now)
-        status = "ACTIVE *" if is_active else "IDLE"
-        hname = info.get("hostname", "-")
+        status = "ACTIVE *" if name == active else "IDLE"
         mid = info.get("machine_id", "-")
         mid_short = mid[:10] + "..." if len(mid) > 10 else mid
-        win_dir = info.get("workspace_win", "-")
-        created = info.get("created_at", "-").split()[0]
-        print(f"{name:<16} {status:<10} {hname:<24} {mid_short:<14} {win_dir:<30} {created}")
+        ws = info.get("workspace_win") or info.get("workspace", "-")
+        created = (info.get("created_at") or "-").split()[0]
+        print(f"{name:<16} {status:<10} {info.get('hostname','-'):<24} {mid_short:<14} {ws[:34]:<34} {created}")
+    print("-" * 112)
+    print(f"Всего сред: {len(envs)}   Активная: {active}")
+    print("\nКоманды: env create [имя] | env switch <имя> | env clean [имя] | "
+          "env delete <имя> [-w] | env purge | env info\n")
 
-    print("-" * 105)
-    print(f"Всего сред: {len(envs)} (активная помечена звездочкой *)\n")
-    print("Команды управления:")
-    print("  env create [имя]        -> Создать новую анонимную среду")
-    print("  env switch <имя>        -> Переключиться в среду (или: switch <имя>)")
-    print("  env clean <имя>         -> Очистить кэш, историю и сменить паспорт среды")
-    print("  env delete <имя> [-w]   -> Удалить среду (-w: также удалить папку на диске D)")
-    print("  env purge               -> Удалить все среды кроме активной")
-    print("=========================================================================================================\n")
 
-def switch_environment(name):
-    data = ensure_manifest()
+def switch_environment(name, run_cmd=None):
+    data = core.ensure_manifest()
     envs = data.get("environments", {})
-
     if name not in envs:
-        print(f"Ошибка: Среда '{name}' не найдена. Введите 'env list' для списка сред.")
+        print(f"Ошибка: среда '{name}' не найдена. Выполните: env list")
         return False
 
     info = envs[name]
-    print(f"\n[→] Запуск изолированной среды: {name}")
-    print(f"    Hostname   : {info['hostname']}")
-    print(f"    Machine ID : {info['machine_id']}")
-    print(f"    Папка      : {info['workspace_win']}")
-    print(f"    (Для выхода обратно введите: exit)\n")
+    mid, hostname = core.ensure_env_identity_files(name, info.get("machine_id"), info.get("hostname"))
+    home, workspace = core.env_paths(name)
+    os.makedirs(home, exist_ok=True)
+    os.makedirs(workspace, exist_ok=True)
 
-    # Dynamically apply machine-id to WSL
-    mid = info.get("machine_id", "")
-    if mid:
-        try:
-            with open("/etc/machine-id", "w") as f:
-                f.write(f"{mid}\n")
-            with open("/var/lib/dbus/machine-id", "w") as f:
-                f.write(f"{mid}\n")
-        except Exception:
-            pass
+    print(f"\n[→] Среда: {name}")
+    print(f"    Hostname   : {hostname}")
+    print(f"    Machine ID : {mid}")
+    print(f"    Платформа  : {core.PLATFORM}")
+    print(f"    Папка      : {core.to_display_path(workspace)}")
+    print("    (выход из OpenCode: /exit, затем exit)\n")
 
     data["active"] = name
-    save_manifest(data)
+    core.save_manifest(data)
 
-    ws = info.get("workspace", "/home/dev/workspace/default")
-    home = info.get("home", "/home/dev")
-    bashrc = os.path.join(home, ".bashrc") if os.path.exists(os.path.join(home, ".bashrc")) else "/home/dev/.bashrc"
+    bashrc = os.path.join(home, ".bashrc")
+    if not os.path.exists(bashrc):
+        if name == "default" and core.LEGACY_LAYOUT:
+            bashrc = "/home/dev/.bashrc"
+        else:
+            core._write_env_bashrc(name, home, workspace)
+            bashrc = os.path.join(home, ".bashrc")
 
-    if os.path.exists(ws):
-        os.chdir(ws)
+    bash = shutil.which("bash") or "/bin/bash"
+    if not os.path.exists(bash):
+        print(f"Ошибка: bash не найден ({bash}). На Windows запускайте через WSL.")
+        return False
 
     env_copy = os.environ.copy()
-    env_copy["OPENCODE_ENV"] = name
-    env_copy["HOME"] = home
-    env_copy["XDG_DATA_HOME"] = os.path.join(home, ".local", "share")
-    env_copy["XDG_CONFIG_HOME"] = os.path.join(home, ".config")
-    env_copy["XDG_STATE_HOME"] = os.path.join(home, ".local", "state")
-    env_copy["XDG_CACHE_HOME"] = os.path.join(home, ".cache")
+    env_copy.update({
+        "OPENCODE_ENV": name,
+        "OPENCODE_STATION_DATA": core.STATE_DIR,
+        "HOME": home,
+        "OPENCODE_TEST_HOME": home,
+        "XDG_DATA_HOME": os.path.join(home, ".local", "share"),
+        "XDG_CONFIG_HOME": os.path.join(home, ".config"),
+        "XDG_STATE_HOME": os.path.join(home, ".local", "state"),
+        "XDG_CACHE_HOME": os.path.join(home, ".cache"),
+        "NO_PROXY": core.DEFAULT_NO_PROXY,
+        "no_proxy": core.DEFAULT_NO_PROXY,
+    })
 
-    os.execvpe("bash", ["bash", "--rcfile", bashrc, "-i"], env_copy)
+    enabled, url, _is_global = core.read_proxy_config(home)
+    if enabled and url:
+        eff = url
+        if core.is_socks(url):
+            eff = core.start_bridge(name, url)
+        ok, err = core.proxy_preflight(url)
+        if not ok:
+            print(f"[!] Прокси {url} не проходит проверку TLS: {err}")
+            print("    Запуск без прокси, чтобы OpenCode не падал с SELF_SIGNED_CERT_IN_CHAIN.")
+            enabled = False
+        else:
+            for key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy",
+                        "ALL_PROXY", "all_proxy"):
+                env_copy[key] = eff
+    if not enabled:
+        for key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy",
+                    "ALL_PROXY", "all_proxy"):
+            env_copy.pop(key, None)
+
+    os.chdir(workspace)
+    if run_cmd:
+        command = f"{run_cmd}; exec {shlex.quote(bash)} --rcfile {shlex.quote(bashrc)} -i"
+        os.execvpe(bash, [bash, "--rcfile", bashrc, "-ic", command], env_copy)
+    os.execvpe(bash, [bash, "--rcfile", bashrc, "-i"], env_copy)
+
 
 def clean_environment(name):
-    data = ensure_manifest()
-    envs = data.get("environments", {})
-
-    if name not in envs:
-        print(f"Ошибка: Среда '{name}' не найдена.")
+    ok, result = core.reset_env(name)
+    if not ok:
+        print(f"Ошибка: {result}")
         return False
-
-    print(f"\n[~] Очистка среды: {name} ...")
-    info = envs[name]
-    new_mid = uuid.uuid4().hex
-    new_host = f"node-{name}-{uuid.uuid4().hex[:4]}"
-
-    if name == "default":
-        dirs_to_clean = ["/home/dev/.cache", "/home/dev/.local/share/opencode", "/var/envs/default"]
-        for d in dirs_to_clean:
-            if os.path.exists(d):
-                shutil.rmtree(d, ignore_errors=True)
-        envs["default"]["machine_id"] = new_mid
-        envs["default"]["hostname"] = new_host
-        save_manifest(data)
-        try:
-            with open("/etc/machine-id", "w") as f:
-                f.write(f"{new_mid}\n")
-            with open("/var/lib/dbus/machine-id", "w") as f:
-                f.write(f"{new_mid}\n")
-        except Exception:
-            pass
-        print(f"[+] Среда default полностью очищена! Новый Machine ID: {new_mid}")
-    else:
-        env_path = os.path.join(ENVS_DIR, name)
-        with open(os.path.join(env_path, "machine-id"), "w") as f:
-            f.write(f"{new_mid}\n")
-        with open(os.path.join(env_path, "hostname"), "w") as f:
-            f.write(f"{new_host}\n")
-
-        home = info["home"]
-        for sub in [".cache", ".local", ".config/opencode"]:
-            fp = os.path.join(home, sub)
-            if os.path.exists(fp):
-                shutil.rmtree(fp, ignore_errors=True)
-        os.makedirs(os.path.join(home, ".config", "opencode"), exist_ok=True)
-
-        envs[name]["machine_id"] = new_mid
-        envs[name]["hostname"] = new_host
-        save_manifest(data)
-
-        print(f"[+] Среда {name} полностью сброшена и очищена!")
-        print(f"    Новый Machine ID : {new_mid}")
-        print(f"    Новый Hostname   : {new_host}")
-        print(f"    Файлы проектов в {info['workspace_win']} сохранены.")
-
-    print("")
+    print(f"[+] Среда {name} очищена. Новый Machine ID: {result['machine_id']}")
+    print(f"    Новый Hostname: {result['hostname']}")
     return True
+
 
 def delete_environment(name, delete_workspace=False):
-    data = ensure_manifest()
-    envs = data.get("environments", {})
+    ok, msg = core.delete_env(name, delete_workspace)
+    print(("[+] " if ok else "[!] ") + msg)
+    return ok
 
-    if name not in envs:
-        print(f"Ошибка: Среда '{name}' не найдена в реестре.")
-        return False
-
-    info = envs[name]
-    print(f"\n[-] Удаление среды: {name} ...")
-
-    # 1. Clean state files
-    if name == "default":
-        for p in ["/home/dev/.local/share/opencode", "/home/dev/.config/opencode", "/home/dev/.cache/opencode", "/var/envs/default"]:
-            if os.path.exists(p):
-                shutil.rmtree(p, ignore_errors=True)
-    else:
-        env_path = os.path.join(ENVS_DIR, name)
-        if os.path.exists(env_path):
-            shutil.rmtree(env_path, ignore_errors=True)
-
-    # 2. Delete workspace if requested
-    if delete_workspace:
-        if name == "default":
-            for ws in ["/home/dev/workspace/default", "/mnt/d/OpenCode-Station_Package/workspace/default"]:
-                if os.path.exists(ws):
-                    shutil.rmtree(ws, ignore_errors=True)
-            print("    [x] Папка проекта default на диске D и в Linux удалена.")
-        else:
-            ws_paths = [info.get("workspace"), f"/mnt/d/OpenCode-Station_Package/workspace/{name}", f"/var/envs/{name}/workspace"]
-            for ws in ws_paths:
-                if ws and os.path.exists(ws):
-                    shutil.rmtree(ws, ignore_errors=True)
-            print(f"    [x] Папка проекта {info['workspace_win']} на диске D удалена.")
-
-    del envs[name]
-    if data.get("active") == name:
-        remaining = list(envs.keys())
-        data["active"] = remaining[0] if remaining else ""
-    save_manifest(data)
-
-    print(f"[+] Среда '{name}' успешно удалена из реестра.\n")
-    return True
-
-def purge_environments():
-    data = ensure_manifest()
-    envs = data.get("environments", {})
-    active = data.get("active", "")
-    to_delete = [n for n in envs.keys() if n != active]
-
-    if not to_delete:
-        print("Нет дополнительных сред для очистки.")
-        return
-
-    print(f"\n[!] Очистка неактивных сред ({len(to_delete)} шт): {', '.join(to_delete)} ...")
-    for name in to_delete:
-        delete_environment(name, delete_workspace=False)
-
-    print("[+] Очистка завершена.\n")
 
 def show_info():
-    data = ensure_manifest()
-    envs = data.get("environments", {})
-    active = get_active_env_name()
-    info = envs.get(active, {})
-
-    print("\n==============================================================================")
-    print(f"                  Паспорт активной среды: [{active}]                          ")
-    print("                  Сделано Антоном Ковалкиным все права защищены.              ")
-    print("==============================================================================")
-    print(f"  Имя среды          : {active}")
+    name = core.get_active_env_name()
+    info = core.env_info(name)
+    home, workspace = core.env_paths(name)
+    enabled, url, is_global = core.read_proxy_config(home)
+    print("\n" + "=" * 78)
+    print(f"                  Паспорт активной среды: [{name}]")
+    print("                  Сделано Антоном Ковалкиным, все права защищены.")
+    print("=" * 78)
+    print(f"  Платформа          : {core.PLATFORM}")
+    print(f"  Каталог данных     : {core.STATE_DIR}")
     print(f"  Hostname           : {info.get('hostname', '-')}")
-    print(f"  Уникальный Machine : {info.get('machine_id', '-')}")
-    print(f"  Домашний каталог   : {info.get('home', '-')}")
-    print(f"  Папка в Windows    : {info.get('workspace_win', '-')}")
-    print(f"  Папка в Linux      : {info.get('workspace', '-')}")
+    print(f"  Machine ID         : {info.get('machine_id', '-')}")
+    print(f"  Домашний каталог   : {home}")
+    print(f"  Рабочая папка      : {workspace}")
+    print(f"  Прокси             : {'ВКЛ ' + url if enabled and url else 'ВЫКЛ'}"
+          f"{' (глобальный fallback)' if is_global else ''}")
     print(f"  Дата создания      : {info.get('created_at', '-')}")
-    print("==============================================================================\n")
+    print("=" * 78 + "\n")
+
 
 def main():
     args = sys.argv[1:]
     if not args:
-        list_environments()
-        return
-
+        _print_env_table()
+        return 0
     cmd = args[0].lower()
-
-    if cmd in ["list", "ls", "лист", "список"]:
-        list_environments()
-    elif cmd in ["create", "new", "add", "создать"]:
+    if cmd in ("list", "ls", "лист", "список"):
+        _print_env_table()
+    elif cmd in ("create", "new", "add", "создать"):
         name = args[1] if len(args) > 1 else None
-        create_environment(name)
-    elif cmd in ["switch", "use", "enter", "select", "перейти", "выбрать"]:
+        ok, res = core.create_env(name)
+        if ok:
+            print(f"[+] Среда создана: {res['name']}")
+            print(f"    Hostname : {res['hostname']}")
+            print(f"    Machine  : {res['machine_id']}")
+            print(f"    Папка    : {res['workspace']} ({res['workspace_win']})")
+        else:
+            print(f"Ошибка: {res}")
+            return 1
+    elif cmd in ("switch", "use", "enter", "select", "войти", "переключить"):
         if len(args) < 2:
-            print("Ошибка: Укажите имя среды: env switch <имя>")
-            print("Введите 'env list' чтобы увидеть доступные среды.")
-            return
-        switch_environment(args[1])
-    elif cmd in ["clean", "reset", "очистить", "сброс"]:
-        target = args[1] if len(args) > 1 else get_active_env_name()
-        clean_environment(target)
-    elif cmd in ["delete", "remove", "rm", "del", "удалить"]:
+            print('Использование: env switch <имя> [--run "команда"]')
+            return 1
+        run_cmd = None
+        if "--run" in args:
+            idx = args.index("--run")
+            if idx + 1 < len(args):
+                run_cmd = " ".join(args[idx + 1:])
+        switch_environment(args[1], run_cmd=run_cmd)
+    elif cmd in ("clean", "reset", "сброс", "очистить"):
+        name = args[1] if len(args) > 1 else core.get_active_env_name()
+        clean_environment(name)
+    elif cmd in ("delete", "remove", "rm", "del", "удалить"):
         if len(args) < 2:
-            print("Ошибка: Укажите имя среды: env delete <имя> [-w]")
-            return
-        target = args[1]
-        del_ws = "-w" in args or "--delete-workspace" in args or "--workspace" in args
-        delete_environment(target, delete_workspace=del_ws)
-    elif cmd in ["purge", "clear", "clear-all"]:
-        purge_environments()
-    elif cmd in ["info", "status", "whoami", "инфо"]:
+            print("Использование: env delete <имя> [-w]")
+            return 1
+        delete_environment(args[1], "-w" in args or "--with-workspace" in args)
+    elif cmd in ("purge", "clear", "clear-all"):
+        ok, msg = core.purge_envs()
+        print(("[+] " if ok else "[!] ") + msg)
+    elif cmd in ("info", "status", "whoami", "инфо"):
         show_info()
-    elif cmd in ["help", "--help", "-h", "/?"]:
-        print("Команды менеджера сред (ENV):")
-        print("  env                     -> Показать все среды (список и в ряд)")
-        print("  env list                -> Показать таблицу и компактный ряд сред")
-        print("  env create [имя]        -> Создать абсолютно новую анонимную среду")
-        print("  env switch <имя>        -> Переключиться в выбранную среду")
-        print("  env clean [имя]         -> Очистить кэш/историю и сменить паспорт среды")
-        print("  env delete <имя> [-w]   -> Удалить среду (-w: также удалить папку на диске D)")
-        print("  env purge               -> Удалить все среды кроме активной")
-        print("  env info                -> Паспорт текущей активной среды")
+    elif cmd in ("help", "--help", "-h", "/?"):
+        _print_env_table()
     else:
-        create_environment(cmd)
+        print(f"Неизвестная подкоманда '{cmd}'. Доступно: list, create, switch, clean, delete, purge, info")
+        return 1
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

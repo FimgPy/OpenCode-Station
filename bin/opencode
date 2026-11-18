@@ -1,135 +1,208 @@
 #!/usr/bin/env bash
-# OpenCode execution wrapper v4.0 (Independent Anonymous Environments)
-# Сделано Антоном Ковалкиным все права защищены.
+# OpenCode Station launcher v3.0 (portable: Linux / WSL / macOS)
+#
+# Isolation model:
+#   * every environment has its own HOME, XDG dirs, workspace and OpenCode DB;
+#   * on Linux/WSL with namespaces available, machine-id/hostname are bound
+#     only inside a private mount+UTS namespace (the host is never modified);
+#   * on macOS user-space isolation is used (unique HOME/XDG, no global writes).
+#
+# Made by Anton Kovalkin. All rights reserved.
 
-# 1. Определение активной среды
-cur_env="${OPENCODE_ENV}"
-if [ -z "$cur_env" ]; then
-    if [ -f "/var/envs/manifest.json" ]; then
-        cur_env=$(python3 -c "import json; d=json.load(open('/var/envs/manifest.json')); print(d.get('active', 'default'))" 2>/dev/null)
-    fi
-fi
-if [ -z "$cur_env" ]; then
-    cur_env="default"
-fi
-export OPENCODE_ENV="$cur_env"
+set -u
 
-# 2. Определение домашней директории среды для полной изоляции кэша и настроек
-if [ "$cur_env" = "default" ]; then
-    ENV_HOME="/home/dev"
-    ENV_WS="/home/dev/workspace/default"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+export OPENCODE_STATION_ROOT="${OPENCODE_STATION_ROOT:-$ROOT_DIR}"
+CORE="$SCRIPT_DIR/station_core.py"
+
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "[!] python3 не найден. Установите Python 3.8+ и повторите запуск." >&2
+    exit 1
+fi
+
+# Resolve the active environment from the manifest unless explicitly pinned.
+if [ -z "${OPENCODE_ENV:-}" ]; then
+    OPENCODE_ENV="$(python3 -c 'import sys; sys.path.insert(0, "'"$SCRIPT_DIR"'"); import station_core; print(station_core.get_active_env_name())' 2>/dev/null || echo default)"
+fi
+export OPENCODE_ENV
+
+# Portable environment descriptor (paths, proxy, binary, platform).
+CORE_ENV="$(python3 "$CORE" shell-exports "$OPENCODE_ENV" 2>/dev/null || true)"
+if [ -n "$CORE_ENV" ]; then
+    eval "$CORE_ENV"
 else
-    ENV_HOME="/var/envs/${cur_env}/home"
-    ENV_WS="/var/envs/${cur_env}/workspace"
+    echo "[!] Не удалось прочитать реестр сред ($CORE)." >&2
+    echo "    Проверьте права на OPENCODE_STATION_DATA и наличие Python 3." >&2
+    exit 1
 fi
 
-export HOME="$ENV_HOME"
-export XDG_DATA_HOME="${ENV_HOME}/.local/share"
-export XDG_CONFIG_HOME="${ENV_HOME}/.config"
-export XDG_STATE_HOME="${ENV_HOME}/.local/state"
-export XDG_CACHE_HOME="${ENV_HOME}/.cache"
-mkdir -p "${XDG_DATA_HOME}" "${XDG_CONFIG_HOME}" "${XDG_STATE_HOME}" "${XDG_CACHE_HOME}" 2>/dev/null
+export HOME="${ENV_HOME:-$HOME}"
+export OPENCODE_TEST_HOME="$HOME"
+export XDG_DATA_HOME="${HOME}/.local/share"
+export XDG_CONFIG_HOME="${HOME}/.config"
+export XDG_STATE_HOME="${HOME}/.local/state"
+export XDG_CACHE_HOME="${HOME}/.cache"
+export OPENCODE_DISABLE_AUTOUPDATE=1
+export OPENCODE_DISABLE_CLAUDE_CODE=1
+export OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1
+export OPENCODE_DISABLE_CHANNEL_DB=1
 
-# 3. Гарантированное подавление всплывающих окон лимитов
-mkdir -p "${XDG_STATE_HOME}/opencode/latest/tui" "${XDG_CONFIG_HOME}/opencode" 2>/dev/null
-echo '{"lastSeenAt":9999999999999,"dontShow":true}' > "${XDG_STATE_HOME}/opencode/latest/tui/go-upsell.json" 2>/dev/null || true
+WORKSPACE="${ENV_WS:-$PWD}"
+mkdir -p "$HOME" "$WORKSPACE" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" \
+         "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "${ENV_DATA:-$ROOT_DIR}/run" \
+         "$XDG_STATE_HOME/opencode/latest/tui" "$XDG_CONFIG_HOME/opencode" 2>/dev/null || true
 
-# 4. Чистая преднастройка: НЕ форсируем платную/чужую модель. Если есть старый big-pickle - удаляем.
-if [ -f "${XDG_STATE_HOME}/opencode/model.json" ]; then
-    if grep -q "big-pickle" "${XDG_STATE_HOME}/opencode/model.json" 2>/dev/null; then
-        rm -f "${XDG_STATE_HOME}/opencode/model.json" 2>/dev/null || true
+# Suppress the Go upsell modal (server-side limits still apply).
+printf '%s\n' '{"lastSeenAt":9999999999999,"dontShow":true}' \
+    > "$XDG_STATE_HOME/opencode/latest/tui/go-upsell.json" 2>/dev/null || true
+
+if [ ! -f "$XDG_CONFIG_HOME/opencode/opencode.json" ]; then
+    printf '%s\n' '{"$schema":"https://opencode.ai/config.json"}' \
+        > "$XDG_CONFIG_HOME/opencode/opencode.json" 2>/dev/null || true
+fi
+
+# Never reuse the shared background service DB.
+rm -f "$XDG_STATE_HOME/opencode/service.json" \
+      "$XDG_CONFIG_HOME/opencode/service.json" 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
+# Proxy
+# ---------------------------------------------------------------------------
+PROXY_EFFECTIVE=""
+if [ "${ENV_PROXY_ENABLED:-no}" = "yes" ] && [ -n "${ENV_PROXY_URL:-}" ]; then
+    proxy_url="$ENV_PROXY_URL"
+    if [[ "$proxy_url" == socks5://* || "$proxy_url" == socks5h://* || \
+          "$proxy_url" == socks4://* || "$proxy_url" == socks4a://* || \
+          "$proxy_url" == socks://* ]]; then
+        PROXY_EFFECTIVE="$(python3 -c 'import sys; sys.path.insert(0, "'"$SCRIPT_DIR"'"); import station_core; print(station_core.start_bridge("'"$OPENCODE_ENV"'", "'"$proxy_url"'"))' 2>/dev/null || true)"
+    else
+        PROXY_EFFECTIVE="$proxy_url"
     fi
-fi
 
-if [ ! -f "${XDG_CONFIG_HOME}/opencode/opencode.json" ]; then
-    cat << 'EOF_CFG' > "${XDG_CONFIG_HOME}/opencode/opencode.json" 2>/dev/null || true
-{
-  "$schema": "https://opencode.ai/config.json"
-}
-EOF_CFG
-fi
-
-# 5. Аппаратная изоляция: динамическая запись Machine ID текущей среды
-mid_file="/var/envs/${cur_env}/machine-id"
-mid=""
-if [ -f "$mid_file" ]; then
-    mid=$(cat "$mid_file" 2>/dev/null | tr -d '\r\n ')
-fi
-if [ -z "$mid" ]; then
-    mid=$(head -c 16 /dev/urandom | md5sum | head -c 32)
-    mkdir -p "/var/envs/${cur_env}" 2>/dev/null
-    echo "$mid" > "$mid_file" 2>/dev/null || true
-fi
-
-echo "$mid" > /etc/machine-id 2>/dev/null || true
-echo "$mid" > /var/lib/dbus/machine-id 2>/dev/null || true
-
-# 6. Удаление разделяемых файлов службы для полной изоляции среды
-rm -f "${XDG_STATE_HOME}/opencode/service.json" "${XDG_CONFIG_HOME}/opencode/service.json" 2>/dev/null || true
-
-# 7. Настройка прокси (локальный или глобальный)
-proxy_notice=""
-if [ -f "$ENV_HOME/.proxy_config" ]; then
-    source "$ENV_HOME/.proxy_config"
-fi
-
-# Если для среды локально прокси не включен, проверяем глобальный прокси
-if [ "$PROXY_ENABLED" != "yes" ] && [ -f "/var/envs/global_proxy.json" ]; then
-    g_enabled=$(python3 -c "import json; d=json.load(open('/var/envs/global_proxy.json')); print('yes' if d.get('enabled') else 'no')" 2>/dev/null || echo "no")
-    if [ "$g_enabled" = "yes" ]; then
-        PROXY_ENABLED="yes"
-        PROXY_URL=$(python3 -c "import json; d=json.load(open('/var/envs/global_proxy.json')); print(d.get('url',''))" 2>/dev/null || echo "")
+    if [ -n "$PROXY_EFFECTIVE" ] && [ "${OPENCODE_PROXY_PREFLIGHT:-1}" != "0" ]; then
+        if ! PREFLIGHT_ERR="$(python3 "$CORE" proxy-preflight "$PROXY_EFFECTIVE" 2>&1)"; then
+            echo "=============================================================================="
+            echo "  [!] Прокси не прошёл проверку TLS: $PROXY_EFFECTIVE"
+            echo "      $PREFLIGHT_ERR"
+            echo "      OpenCode не будет использовать этот прокси (иначе возникает"
+            echo "      SELF_SIGNED_CERT_IN_CHAIN). Выберите прокси с чистым HTTPS."
+            echo "=============================================================================="
+            PROXY_EFFECTIVE=""
+        fi
     fi
-fi
 
-if [ "$PROXY_ENABLED" = "yes" ] && [ -n "$PROXY_URL" ]; then
-    case "$PROXY_URL" in
-        *://*) ;;
-        *) PROXY_URL="http://${PROXY_URL}" ;;
-    esac
-
-    case "$PROXY_URL" in
-        socks5://*|socks5h://*|socks4://*|socks4a://*|socks://*)
-            /usr/local/bin/opencode-proxy-bridge start "$PROXY_URL" 10800 >/dev/null 2>&1
-            effective_proxy="http://127.0.0.1:10800"
-            ;;
-        *)
-            effective_proxy="$PROXY_URL"
-            ;;
-    esac
-
-    export HTTP_PROXY="$effective_proxy"
-    export HTTPS_PROXY="$effective_proxy"
-    export http_proxy="$effective_proxy"
-    export https_proxy="$effective_proxy"
-    export ALL_PROXY="$effective_proxy"
-    export all_proxy="$effective_proxy"
+    if [ -n "$PROXY_EFFECTIVE" ]; then
+        export HTTP_PROXY="$PROXY_EFFECTIVE" HTTPS_PROXY="$PROXY_EFFECTIVE"
+        export http_proxy="$PROXY_EFFECTIVE" https_proxy="$PROXY_EFFECTIVE"
+        export ALL_PROXY="$PROXY_EFFECTIVE" all_proxy="$PROXY_EFFECTIVE"
+        export OPENCODE_PROXY_ACTIVE="$PROXY_EFFECTIVE"
+        echo "[i] Прокси активен: $PROXY_EFFECTIVE (среда $OPENCODE_ENV)"
+    else
+        unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy
+        export OPENCODE_PROXY_ACTIVE=""
+    fi
 else
     unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy
+    export OPENCODE_PROXY_ACTIVE=""
 fi
 
-export NO_PROXY="127.0.0.1,localhost,::1"
-export no_proxy="127.0.0.1,localhost,::1"
+export NO_PROXY="127.0.0.1,localhost,::1,local.home"
+export no_proxy="$NO_PROXY"
 
-# 8. Переход в рабочую папку среды
-if [ -d "$ENV_WS" ]; then
-    cd "$ENV_WS" 2>/dev/null || true
+cd "$WORKSPACE" 2>/dev/null || true
+
+# Remember the launcher PID for reliable environment cleanup (GUI/ttyd).
+if [ -n "${ENV_DATA:-}" ]; then
+    mkdir -p "$ENV_DATA/run" 2>/dev/null || true
+    printf '{"pids":[%d],"env":"%s","started":"%s"}\n' "$$" "$OPENCODE_ENV" \
+        "$(date '+%Y-%m-%d %H:%M:%S')" \
+        > "$ENV_DATA/run/env-${OPENCODE_ENV}.json" 2>/dev/null || true
 fi
 
-# 9. Информационная шапка при интерактивном запуске
-if [ -t 0 ] && [ "$1" != "run" ] && [ "$1" != "api" ] && [ "$1" != "models" ]; then
+# ---------------------------------------------------------------------------
+# Command line
+# ---------------------------------------------------------------------------
+USE_STANDALONE=1
+case "${1:-}" in
+    serve|service|upgrade|update|uninstall|acp|completions|models|auth|api|debug|plugin|mcp|session|stats|pair|reload|--help|-h|--version|-v)
+        USE_STANDALONE=0
+        ;;
+esac
+for arg in "$@"; do
+    case "$arg" in
+        --standalone|--server|--server=*)
+            USE_STANDALONE=0
+            ;;
+    esac
+done
+
+RUN_ARGS=()
+if [ "$USE_STANDALONE" -eq 1 ]; then
+    RUN_ARGS+=("--standalone")
+fi
+RUN_ARGS+=("$@")
+
+if [ -t 0 ] && [ "${1:-}" != "run" ] && [ "${1:-}" != "api" ] && \
+   [ "${1:-}" != "models" ] && [ "${1:-}" != "auth" ]; then
     echo "=============================================================================="
-    echo "  OpenCode Station [Сделано Антоном Ковалкиным все права защищены]"
-    echo "  Среда: [${cur_env}] | Machine ID: ${mid:0:12}..."
+    echo "  OpenCode Station [${ENV_PLATFORM:-linux} · изолированная среда]"
+    echo "  Среда: [${OPENCODE_ENV}] | Hostname: ${ENV_HOSTNAME:-?} | ID: $(printf '%s' "${ENV_MACHINE_ID:-?}" | cut -c1-12)..."
     echo "  Рабочая папка: $(pwd)"
-    if [ -n "$HTTP_PROXY" ]; then
-        echo "  Сеть: Прокси активен (${HTTP_PROXY})"
+    if [ -n "$PROXY_EFFECTIVE" ]; then
+        echo "  Прокси: включён (${PROXY_EFFECTIVE})"
     else
-        echo "  Сеть: Прямое изолированное подключение"
+        echo "  Прокси: выключен (прямое подключение)"
     fi
-    echo "  [Подсказка] Выход в терминал: введите /exit или нажмите Ctrl+D"
+    echo "  [Подсказка] Выход: /exit или Ctrl+D"
     echo "=============================================================================="
 fi
 
-# 10. Запуск изолированного OpenCode
-exec /usr/local/bin/opencode-bin "$@"
+OPENCODE_BIN="${ENV_OPENCODE_BIN:-}"
+if [ -z "$OPENCODE_BIN" ] || [ ! -x "$OPENCODE_BIN" ]; then
+    if command -v opencode >/dev/null 2>&1; then
+        OPENCODE_BIN="$(command -v opencode)"
+    elif [ -x "$SCRIPT_DIR/opencode-bin" ]; then
+        OPENCODE_BIN="$SCRIPT_DIR/opencode-bin"
+    else
+        echo "[!] Бинарник OpenCode не найден. Запустите setup.sh / setup.bat." >&2
+        exit 127
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Linux/WSL namespace isolation (optional, never mutates the host)
+# ---------------------------------------------------------------------------
+if [ "${ENV_ISOLATION:-user}" = "unshare" ] && [ "${OPENCODE_STATION_NO_NS:-0}" != "1" ]; then
+    TARGET_UID="$(id -u)"
+    TARGET_GID="$(id -g)"
+    SUDO=""
+    if [ "$TARGET_UID" -ne 0 ]; then
+        if sudo -n true 2>/dev/null; then
+            SUDO="sudo -n"
+        else
+            echo "[i] Нет passwordless sudo: используется user-space изоляция (HOME/XDG)."
+        fi
+    fi
+
+    if [ "$TARGET_UID" -eq 0 ] || [ -n "$SUDO" ]; then
+        PRESERVE_VARS="HOME,OPENCODE_TEST_HOME,OPENCODE_STATION_ROOT,OPENCODE_STATION_DATA,OPENCODE_ENV,OPENCODE_PROXY_ACTIVE,XDG_DATA_HOME,XDG_CONFIG_HOME,XDG_STATE_HOME,XDG_CACHE_HOME,OPENCODE_DISABLE_AUTOUPDATE,OPENCODE_DISABLE_CLAUDE_CODE,OPENCODE_DISABLE_CLAUDE_CODE_SKILLS,OPENCODE_DISABLE_CHANNEL_DB,OPENCODE_MODEL,OPENCODE_API_KEY,GEMINI_API_KEY,GOOGLE_API_KEY,GROQ_API_KEY,OPENROUTER_API_KEY,DEEPSEEK_API_KEY,HTTP_PROXY,HTTPS_PROXY,http_proxy,https_proxy,ALL_PROXY,all_proxy,NO_PROXY,no_proxy,TERM,COLORTERM,LANG,LC_ALL,PATH"
+        # shellcheck disable=SC2086
+        exec $SUDO --preserve-env="$PRESERVE_VARS" unshare --mount --uts bash -c '
+            env_host="$1"; mid_src="$2"; host_src="$3"; t_uid="$4"; t_gid="$5"
+            shift 5
+            hostname "$env_host" 2>/dev/null || true
+            [ -f "$mid_src" ] && [ -e /etc/machine-id ] && mount --bind "$mid_src" /etc/machine-id 2>/dev/null || true
+            [ -f "$mid_src" ] && [ -e /var/lib/dbus/machine-id ] && mount --bind "$mid_src" /var/lib/dbus/machine-id 2>/dev/null || true
+            [ -f "$host_src" ] && [ -e /etc/hostname ] && mount --bind "$host_src" /etc/hostname 2>/dev/null || true
+            if [ "$t_uid" != "0" ] && command -v setpriv >/dev/null 2>&1; then
+                exec setpriv --reuid="$t_uid" --regid="$t_gid" --init-groups "$@"
+            fi
+            exec "$@"
+        ' _ "${ENV_HOSTNAME:-node-${OPENCODE_ENV}}" "${ENV_META:-}/machine-id" \
+            "${ENV_META:-}/hostname" "$TARGET_UID" "$TARGET_GID" \
+            "$OPENCODE_BIN" "${RUN_ARGS[@]}"
+    fi
+fi
+
+exec "$OPENCODE_BIN" "${RUN_ARGS[@]}"

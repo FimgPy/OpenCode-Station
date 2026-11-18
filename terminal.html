@@ -396,12 +396,12 @@
         <div class="flex flex-wrap items-center gap-2">
           <span class="text-xs font-semibold uppercase tracking-wider text-gray-500 mr-1">Команды:</span>
           
-          <button onclick="runInTerminal('opencode\r')" class="px-3 py-1.5 rounded-lg bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-700 text-cyan-300 text-xs font-mono flex items-center gap-1.5 shadow transition">
+          <button onclick="launchOpenCodeInActiveEnv()" class="px-3 py-1.5 rounded-lg bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-700 text-cyan-300 text-xs font-mono flex items-center gap-1.5 shadow transition">
             <i class="fa-solid fa-bolt text-cyan-400"></i>
             <span>opencode</span>
           </button>
 
-          <button onclick="runInTerminal('opencode -c\r')" class="px-3 py-1.5 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700 text-emerald-300 text-xs font-mono flex items-center gap-1.5 transition" title="Продолжить последнюю сессию">
+          <button onclick="launchOpenCodeContinue()" class="px-3 py-1.5 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700 text-emerald-300 text-xs font-mono flex items-center gap-1.5 transition" title="Продолжить последнюю сессию">
             <i class="fa-solid fa-forward-step text-emerald-400"></i>
             <span>Продолжить сессию</span>
           </button>
@@ -454,7 +454,7 @@
 
       <!-- Embedded Terminal Iframe -->
       <div class="rounded-xl overflow-hidden border border-gray-800 shadow-2xl bg-black relative" style="height: 600px;">
-        <iframe id="terminal-frame" src="http://localhost:7681" class="w-full h-full border-none" allow="clipboard-read; clipboard-write"></iframe>
+        <iframe id="terminal-frame" src="about:blank" class="w-full h-full border-none" allow="clipboard-read; clipboard-write"></iframe>
       </div>
 
     </section>
@@ -498,7 +498,7 @@
             </div>
             <div>
               <div class="text-base font-bold text-white flex items-center gap-2">
-                <span>Глобальный прокси для всех чатов и сессий</span>
+                <span>Глобальный fallback (для сред без своего прокси)</span>
                 <span id="badge-global-proxy" class="text-xs px-2.5 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700 font-mono">ВЫКЛЮЧЕН</span>
               </div>
               <p class="text-xs text-gray-400 mt-0.5">Единая точка выхода: все чаты, сессии и новые анонимные среды автоматически подключаются через этот прокси</p>
@@ -608,7 +608,7 @@
 
             <div class="flex items-center gap-2 px-1">
               <input type="checkbox" id="proxy-also-global-checkbox" class="rounded bg-dark-900 border-gray-700 text-purple-600 focus:ring-0">
-              <label for="proxy-also-global-checkbox" class="text-xs text-gray-300 cursor-pointer">Сделать также глобальным для всех чатов и сессий</label>
+              <label for="proxy-also-global-checkbox" class="text-xs text-gray-300 cursor-pointer">Также сохранить как глобальный fallback (не меняет прокси других сред)</label>
             </div>
             <div class="flex items-center gap-2 pt-1">
               <button onclick="saveSelectedEnvProxy()" class="flex-1 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-medium text-sm flex items-center justify-center gap-2 transition shadow">
@@ -924,7 +924,7 @@
         <span>Сделано Антоном Ковалкиным все права защищены</span>
       </div>
       <div class="flex items-center gap-3 font-mono text-gray-400">
-        <span>WSL2 Ubuntu</span>
+        <span id="footer-platform">Linux / macOS / WSL</span>
         <span>|</span>
         <span>Порт 7682</span>
         <span>|</span>
@@ -938,7 +938,10 @@
     const API_BASE = window.location.origin.includes('7682') ? window.location.origin : 'http://localhost:7682';
     let currentEnvs = {};
     let activeEnv = 'default';
-    let currentPath = '/home/dev/workspace';
+    let currentPath = '/home/dev/workspace/default';
+    let pathInitialized = false;
+    let terminalUrl = '';
+    let platformName = 'linux';
     let editingFilePath = '';
     let selectedFilePaths = new Set();
     let currentDirFiles = [];
@@ -986,7 +989,7 @@
       if (tabId === 'files') {
         loadFiles(currentPath);
       } else if (tabId === 'proxy') {
-        checkIpStatus();
+        checkSelectedEnvIp();
       } else if (tabId === 'provider') {
         loadProviderConfig();
       }
@@ -1002,6 +1005,22 @@
         
         currentEnvs = data.environments || {};
         activeEnv = data.active_env || 'default';
+        platformName = data.platform || 'linux';
+        const platformLabel = document.getElementById('footer-platform');
+        if (platformLabel) platformLabel.textContent = `${data.platform || 'linux'} · v${data.version || ''}`;
+        document.querySelectorAll('.windows-only').forEach(el => {
+          el.style.display = (platformName === 'wsl' || platformName === 'windows') ? '' : 'none';
+        });
+        if (!pathInitialized && currentEnvs[activeEnv]?.workspace) {
+          currentPath = currentEnvs[activeEnv].workspace;
+          pathInitialized = true;
+        }
+        // The backend owns the terminal process; never guess a stale 7681 URL.
+        const frame = document.getElementById('terminal-frame');
+        if (frame && data.terminal && data.terminal.url && !terminalUrl) {
+          terminalUrl = data.terminal.url;
+          frame.src = terminalUrl;
+        }
         
         document.getElementById('pill-active-env').textContent = activeEnv;
         document.getElementById('stat-active-env').textContent = activeEnv;
@@ -1125,7 +1144,7 @@
                 <span class="text-gray-500">Папка Linux (Рабочая):</span>
                 <span class="text-emerald-400 font-medium truncate max-w-[200px]" title="${env.workspace}">${env.workspace}</span>
               </div>
-              <div class="flex items-center justify-between">
+              <div class="flex items-center justify-between windows-only">
                 <span class="text-gray-500">Папка Win (Экспорт):</span>
                 <span class="text-gray-400 truncate max-w-[200px]" title="${env.workspace_win}">${env.workspace_win}</span>
               </div>
@@ -1150,7 +1169,7 @@
           <!-- Card Actions -->
           <div class="space-y-2 pt-4 border-t border-gray-800/80 mt-4">
             <div class="grid grid-cols-2 gap-2">
-              <button onclick="exportEnvToWindows('${env.workspace}', '${env.workspace_win}')" class="px-2.5 py-1.5 rounded-lg bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-800 text-emerald-300 text-xs font-medium flex items-center justify-center gap-1.5 transition" title="Скопировать все файлы проекта из Linux в Windows D:">
+              <button onclick="exportEnvToWindows('${env.workspace}', '${env.workspace_win}')" class="windows-only px-2.5 py-1.5 rounded-lg bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-800 text-emerald-300 text-xs font-medium flex items-center justify-center gap-1.5 transition" title="Скопировать все файлы проекта из Linux в Windows D:">
                 <i class="fa-solid fa-share-from-square"></i>
                 <span>Экспорт в Win (D:)</span>
               </button>
@@ -1169,7 +1188,7 @@
                 <i class="fa-solid fa-satellite-dish"></i>
                 <span>Прокси</span>
               </button>
-              <button onclick="openFolderInWin('${env.workspace}')" class="p-1.5 rounded-lg bg-dark-900 hover:bg-dark-700 text-gray-400 hover:text-blue-400 border border-gray-800 text-xs transition" title="Открыть папку в Windows Explorer">
+              <button onclick="openFolderInWin('${env.workspace}')" class="windows-only p-1.5 rounded-lg bg-dark-900 hover:bg-dark-700 text-gray-400 hover:text-blue-400 border border-gray-800 text-xs transition" title="Открыть папку в проводнике">
                 <i class="fa-brands fa-windows"></i>
               </button>
               <button onclick="deleteEnv('${env.name}')" class="p-1.5 rounded-lg bg-dark-900 hover:bg-rose-950/50 hover:border-rose-800 hover:text-rose-400 border border-gray-800 text-xs text-gray-500 transition" title="Удалить среду ${env.name}">
@@ -1196,103 +1215,95 @@
       });
     }
 
-    // Instant Resume Specific Session
-    async function resumeExactSession(envName, sessionId) {
-      activeEnv = envName;
+    // Start a terminal through the backend (no keystroke injection / races).
+    async function launchTerminal(envName, sessionId, runOpencode = true) {
+      const targetEnv = envName || activeEnv || 'default';
+      activeEnv = targetEnv;
       const topPill = document.getElementById('pill-active-env');
-      if (topPill) topPill.textContent = envName;
+      if (topPill) topPill.textContent = targetEnv;
       const statPill = document.getElementById('stat-active-env');
-      if (statPill) statPill.textContent = envName;
+      if (statPill) statPill.textContent = targetEnv;
+
+      switchTab('terminal');
+      const sel = document.getElementById('terminal-env-select');
+      if (sel) sel.value = targetEnv;
+      const frame = document.getElementById('terminal-frame');
+      if (frame) {
+        frame.src = 'about:blank';
+        terminalUrl = '';
+      }
+      showToast(`Запуск терминала среды [${targetEnv}]...`, "info");
 
       try {
         await fetch(`${API_BASE}/api/envs/set_active`, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ name: envName })
+          body: JSON.stringify({ name: targetEnv })
         });
-        await fetch(`${API_BASE}/api/opencode/kill`, { method: 'POST' });
-        const frame = document.getElementById('terminal-frame');
-        if (frame && frame.contentWindow) {
-          frame.contentWindow.postMessage({ type: 'RESET_TERMINAL' }, '*');
+        const res = await fetch(`${API_BASE}/api/terminal/launch`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ env: targetEnv, session: sessionId || '', run_opencode: runOpencode })
+        });
+        const data = await res.json();
+        if (!data.success) {
+          showToast(`Терминал: ${data.error || 'ошибка запуска'}`, "error");
+          return;
         }
-      } catch (e) {}
+        terminalUrl = data.terminal.url;
+        if (frame) frame.src = terminalUrl;
+        showToast(`Среда [${targetEnv}] готова в терминале`, "success");
+        refreshAll();
+      } catch (err) {
+        showToast(`Ошибка запуска терминала: ${err.message}`, "error");
+      }
+    }
 
-      switchTab('terminal');
-      const sel = document.getElementById('terminal-env-select');
-      if (sel) sel.value = envName;
+    // Instant Resume Specific Session
+    async function resumeExactSession(envName, sessionId) {
       showToast(`Подключение к сессии [${sessionId.substring(0, 12)}...] в среде [${envName}]`, "info");
-      setTimeout(() => {
-        runInTerminal(`env switch ${envName}\r`);
-        setTimeout(() => {
-          runInTerminal(`opencode -s ${sessionId}\r`);
-        }, 500);
-      }, 400);
+      await launchTerminal(envName, sessionId, true);
     }
 
     // Launch 100% Brand New Session (Guaranteed Fresh Chat)
     async function launchNewOpenCodeSession(envName) {
-      activeEnv = envName;
-      const topPill = document.getElementById('pill-active-env');
-      if (topPill) topPill.textContent = envName;
-      const statPill = document.getElementById('stat-active-env');
-      if (statPill) statPill.textContent = envName;
+      await launchTerminal(envName, '', true);
+    }
 
-      try {
-        await fetch(`${API_BASE}/api/envs/set_active`, {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ name: envName })
-        });
-        await fetch(`${API_BASE}/api/opencode/kill`, { method: 'POST' });
-        const frame = document.getElementById('terminal-frame');
-        if (frame && frame.contentWindow) {
-          frame.contentWindow.postMessage({ type: 'RESET_TERMINAL' }, '*');
-          frame.contentWindow.postMessage({ type: 'SEND_INPUT', data: '\x03\x15' }, '*');
-        }
-      } catch (e) {}
+    async function launchOpenCodeInActiveEnv() {
+      await launchTerminal(activeEnv, '', true);
+    }
 
-      switchTab('terminal');
-      const sel = document.getElementById('terminal-env-select');
-      if (sel) sel.value = envName;
-      showToast(`Среда [${envName}] активирована. Запуск OpenCode...`, "info");
-
-      setTimeout(() => {
-        runInTerminal(`switch ${envName}\r`);
-        setTimeout(() => {
-          runInTerminal(`opencode\r`);
-        }, 800);
-      }, 400);
+    async function launchOpenCodeContinue() {
+      const env = currentEnvs[activeEnv] || {};
+      const session = env.latest_session?.id || '';
+      await launchTerminal(activeEnv, session, true);
     }
 
     // Graceful Exit / Clean Stop for OpenCode
     async function killOpenCodeProcess() {
-      const frame = document.getElementById('terminal-frame');
-
-      // 1. Send instant terminal reset to stop mouse event reporting
-      try {
-        frame.contentWindow.postMessage({ type: 'RESET_TERMINAL' }, '*');
-        frame.contentWindow.postMessage({ type: 'SEND_INPUT', data: '\x03\x03\x15' }, '*');
-      } catch (e) {}
-
       showToast("Закрытие OpenCode и открытие CMD...", "info");
-
-      // 2. Call backend graceful kill & terminal reset
+      const frame = document.getElementById('terminal-frame');
       try {
         await fetch(`${API_BASE}/api/opencode/kill`, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({})
+          body: JSON.stringify({ env: activeEnv })
         });
-      } catch (e) {}
-
-      // 3. Complete terminal wipe and trigger clean command prompt
-      setTimeout(() => {
-        try {
-          frame.contentWindow.postMessage({ type: 'RESET_TERMINAL' }, '*');
-          frame.contentWindow.postMessage({ type: 'SEND_INPUT', data: '\x03\x15cls\r' }, '*');
-        } catch (e) {}
-        showToast("OpenCode успешно закрыт. Командная строка активна!", "success");
-      }, 150);
+        const res = await fetch(`${API_BASE}/api/terminal/reset`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ env: activeEnv })
+        });
+        const data = await res.json();
+        if (data.success && data.terminal?.url) {
+          terminalUrl = data.terminal.url;
+          if (frame) frame.src = terminalUrl;
+        }
+        showToast("OpenCode закрыт. Командная строка активна!", "success");
+      } catch (e) {
+        showToast("Не удалось перезапустить терминал", "error");
+      }
     }
 
     // Full terminal reload if ever needed
@@ -1905,7 +1916,7 @@
     }
 
     // ================= TERMINAL INTEGRATION =================
-    function runInTerminal(cmd) {
+    async function runInTerminal(cmd) {
       if (!cmd) return;
       let formatted = cmd;
       if (!formatted.endsWith('\r') && !formatted.endsWith('\n')) {
@@ -1913,34 +1924,29 @@
       } else {
         formatted = formatted.replace(/\r?\n$/, '\r');
       }
+      if (!terminalUrl) {
+        // Make sure the managed ttyd process exists before typing into it.
+        await launchTerminal(activeEnv, '', false);
+        await new Promise(resolve => setTimeout(resolve, 700));
+      }
       const frame = document.getElementById('terminal-frame');
       if (frame && frame.contentWindow) {
         try {
           frame.contentWindow.postMessage({ type: 'SEND_INPUT', text: formatted, data: formatted }, '*');
         } catch (e) {
           console.error('[Terminal Frame Error]', e);
+          showToast("Терминал ещё загружается, повторите через секунду", "info");
+          return;
         }
       }
       showToast(`Команда отправлена: ${cmd.trim()}`, "info");
     }
 
     async function switchEnvInTerminal(envName) {
-      activeEnv = envName;
-      const topPill = document.getElementById('pill-active-env');
-      if (topPill) topPill.textContent = envName;
-      const statPill = document.getElementById('stat-active-env');
-      if (statPill) statPill.textContent = envName;
-
-      try {
-        await fetch(`${API_BASE}/api/envs/set_active`, {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ name: envName })
-        });
-      } catch (e) {}
-      runInTerminal(`env switch ${envName}\n`);
-      showToast(`Переключение терминала в среду [${envName}]`, "info");
-      refreshAll();
+      // Restart the managed terminal in the selected environment.  The old
+      // implementation typed "env switch ..." into a random ttyd shell, which
+      // raced with OpenCode and produced broken commands in the console.
+      await launchTerminal(envName, '', false);
     }
 
     async function pasteClipboardToTerminal() {
@@ -2077,11 +2083,15 @@
         });
         const data = await res.json();
         if (data.success) {
-          showToast(`Прокси для среды [${envName}] успешно сохранен!`, "success");
+          showToast(`Прокси для среды [${envName}] сохранён и проверен!`, "success");
           if (data.ip_check) updateNetworkUI(data.ip_check, envName);
           refreshAll();
         } else {
-          showToast(`Ошибка: ${data.error}`, "error");
+          showToast(`Прокси отклонён: ${data.error || 'проверка не пройдена'}`, "error");
+          if (data.tls_ok === false) {
+            showToast("Этот прокси перехватывает TLS — OpenCode упадёт с SELF_SIGNED_CERT_IN_CHAIN", "error");
+          }
+          refreshAll();
         }
       } catch (err) {
         showToast("Ошибка сохранения прокси", "error");
@@ -2188,9 +2198,9 @@
     // ================= AI PROVIDER LOGIC =================
     const PROVIDER_MODELS = {
       google: [
-        { id: "google/gemini-2.0-flash", name: "Gemini 2.0 Flash (Свежайшая и быстрая)" },
-        { id: "google/gemini-1.5-flash", name: "Gemini 1.5 Flash (Стабильная бесплатная)" },
-        { id: "google/gemini-1.5-pro", name: "Gemini 1.5 Pro (Глубокое рассуждение)" }
+        { id: "google/gemini-2.5-flash", name: "Gemini 2.5 Flash (Свежайшая и быстрая)" },
+        { id: "google/gemini-2.5-pro", name: "Gemini 2.5 Pro (Глубокое рассуждение)" },
+        { id: "google/gemini-2.0-flash", name: "Gemini 2.0 Flash (Стабильная бесплатная)" }
       ],
       groq: [
         { id: "groq/llama-3.3-70b-versatile", name: "Llama 3.3 70B Versatile (Рекомендуется)" },
@@ -2207,12 +2217,9 @@
         { id: "deepseek/deepseek-reasoner", name: "DeepSeek-R1 Reasoner" }
       ],
       opencode: [
-        { id: "opencode/deepseek-v4.1-flash-free", name: "DeepSeek V4.1 Flash Free (Рекомендуется)" },
-        { id: "opencode/flint-40b-free", name: "Flint 40B Free" },
-        { id: "opencode/beam-free", name: "Beam Free" },
-        { id: "opencode/glm-5.3-flash-free", name: "GLM 5.3 Flash Free" },
-        { id: "opencode/nemotron-3.5-lightning-free", name: "Nemotron 3.5 Lightning Free" },
-        { id: "opencode/mimo-v2.6-flash-free", name: "Mimo 2.6 Flash Free" }
+        { id: "opencode/big-pickle", name: "Big Pickle (Бесплатная модель OpenCode)" },
+        { id: "opencode/jev-1.13-free", name: "Jev 1.13 Free (Бесплатная модель OpenCode)" },
+        { id: "opencode/glm-5.3-flash-free", name: "GLM 5.3 Flash Free (Устаревшая)" }
       ]
     };
 
@@ -2221,7 +2228,7 @@
       groq: { url: "https://console.groq.com/keys", text: "Получить бесплатный ключ Groq Cloud", help: "Сверхбыстрый API, 14 400 запросов в сутки бесплатно" },
       openrouter: { url: "https://openrouter.ai/settings/keys", text: "Получить ключ OpenRouter", help: "Доступны бесплатные модели с суффиксом :free" },
       deepseek: { url: "https://platform.deepseek.com/api_keys", text: "Получить ключ DeepSeek Platform", help: "Официальный прямой API от DeepSeek" },
-      opencode: { url: "https://opencode.ai", text: "Публичный пул OpenCode", help: "Ключ не требуется, прямое подключение" }
+      opencode: { url: "https://opencode.ai", text: "Публичный пул OpenCode", help: "Квота ограничена на каждый выходной IP (для обхода задайте чистый прокси на среду или свой API-ключ)" }
     };
 
     async function loadProviderConfig() {
@@ -2309,7 +2316,7 @@
         const res = await fetch(`${API_BASE}/api/provider/test`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ provider, model, apiKey })
+          body: JSON.stringify({ provider, model, apiKey, env: activeEnv })
         });
         const data = await res.json();
         if (resultBox) {
@@ -2434,11 +2441,11 @@
         const res = await fetch(`${API_BASE}/api/proxy/global`, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ url: url, enable: toggle, apply_all: true })
+          body: JSON.stringify({ url: url, enable: toggle, apply_all: false })
         });
         const data = await res.json();
         if (data.success) {
-          showToast("Глобальный прокси применен ко всем чатам и сессиям!", "success");
+          showToast("Глобальный fallback сохранён (среды с собственным прокси не изменены)", "success");
           globalProxyState = data.global_proxy;
           updateGlobalProxyUI(globalProxyState);
           refreshAll();
@@ -2461,11 +2468,11 @@
         const res = await fetch(`${API_BASE}/api/proxy/global`, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ url: url, enable: enabled, apply_all: true })
+          body: JSON.stringify({ url: url, enable: enabled, apply_all: false })
         });
         const data = await res.json();
         if (data.success) {
-          showToast(`Глобальный прокси ${enabled ? 'включен' : 'отключен'}`, "info");
+          showToast(`Глобальный fallback ${enabled ? 'включён' : 'отключён'}`, "info");
           globalProxyState = data.global_proxy;
           updateGlobalProxyUI(globalProxyState);
           refreshAll();
@@ -2563,11 +2570,11 @@
         const res = await fetch(`${API_BASE}/api/proxy/global`, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ url: url, enable: true, apply_all: true })
+          body: JSON.stringify({ url: url, enable: true, apply_all: false })
         });
         const data = await res.json();
         if (data.success) {
-          showToast(`Глобальный прокси успешно включен: ${url}`, "success");
+          showToast(`Глобальный fallback включён: ${url}`, "success");
           globalProxyState = data.global_proxy;
           updateGlobalProxyUI(globalProxyState);
           refreshAll();

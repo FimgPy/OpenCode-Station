@@ -10,18 +10,34 @@ import glob
 import shutil
 import subprocess
 
-DEFAULT_DEST = "/mnt/d/OpenCode-Station_Package/workspace"
+DEFAULT_DEST = "/mnt/d/OpenCode-Station_Package/workspace" if os.path.exists("/mnt/d") else "/mnt/c/OpenCode-Station_Package/workspace"
+
+def _detect_win_user_dir():
+    try:
+        r = subprocess.run(["/mnt/c/Windows/System32/cmd.exe", "/c", "echo %USERNAME%"], capture_output=True, text=True, timeout=2)
+        u = r.stdout.strip().splitlines()[-1].strip() if r.returncode == 0 and r.stdout.strip() else ""
+        if u and os.path.exists(f"/mnt/c/Users/{u}"):
+            return f"/mnt/c/Users/{u}"
+    except Exception:
+        pass
+    if os.path.exists("/mnt/c/Users"):
+        for d in os.listdir("/mnt/c/Users"):
+            if d not in ("Public", "Default", "Default User", "All Users") and os.path.isdir(f"/mnt/c/Users/{d}/Desktop"):
+                return f"/mnt/c/Users/{d}"
+    return "/mnt/c/Users/Public"
+
+WIN_USER_DIR = _detect_win_user_dir()
 
 SHORTCUTS = {
-    "desktop": "/mnt/c/Users/anton/Desktop",
-    "рабочий_стол": "/mnt/c/Users/anton/Desktop",
-    "downloads": "/mnt/c/Users/anton/Downloads",
-    "загрузки": "/mnt/c/Users/anton/Downloads",
-    "documents": "/mnt/c/Users/anton/Documents",
-    "документы": "/mnt/c/Users/anton/Documents",
-    "d": "/mnt/d/OpenCode-Station_Package/workspace",
-    "d:": "/mnt/d/OpenCode-Station_Package/workspace",
-    "workspace": "/mnt/d/OpenCode-Station_Package/workspace"
+    "desktop": f"{WIN_USER_DIR}/Desktop",
+    "рабочий_стол": f"{WIN_USER_DIR}/Desktop",
+    "downloads": f"{WIN_USER_DIR}/Downloads",
+    "загрузки": f"{WIN_USER_DIR}/Downloads",
+    "documents": f"{WIN_USER_DIR}/Documents",
+    "документы": f"{WIN_USER_DIR}/Documents",
+    "d": DEFAULT_DEST,
+    "d:": DEFAULT_DEST,
+    "workspace": DEFAULT_DEST
 }
 
 def to_linux_path(p):

@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Cross-platform process controller for OpenCode Station."""
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+import urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import station_core as core  # noqa: E402
+
+GUI_SERVER = os.path.join(core.BIN_DIR, "opencode-gui-server")
+DEFAULT_PORT = int(os.environ.get("OPENCODE_STATION_PORT", "7682"))
+TERMINAL_PORT = int(os.environ.get("OPENCODE_STATION_TERMINAL_PORT", "7681"))
+
+
+def ping(port=DEFAULT_PORT, timeout=1.0):
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/ping", timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8")).get("app") == core.APP_NAME
+    except Exception:
+        return False
+
+
+def open_browser(url):
+    try:
+        if core.IS_WINDOWS:
+            os.startfile(url)  # type: ignore[attr-defined]
+        elif core.IS_MACOS:
+            subprocess.Popen(["open", url])
+        elif core.IS_WSL:
+            subprocess.Popen(["cmd.exe", "/c", "start", "", url])
+        else:
+            subprocess.Popen(["xdg-open", url],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+
+def stop_gui():
+    core.stop_terminal()
+    record = core.read_json(os.path.join(core.RUN_DIR, "gui.json"), {}) or {}
+    pids = []
+    if isinstance(record, dict) and record.get("pid"):
+        pids.append(int(record["pid"]))
+    # Safe scan: only python processes whose command line contains the GUI
+    # server script.  Excludes this process and its parent.
+    pids += core.find_processes(["opencode-gui-server"])
+    core.kill_pids(pids)
+    try:
+        os.remove(os.path.join(core.RUN_DIR, "gui.json"))
+    except Exception:
+        pass
+    # Stop orphaned SOCKS bridges.
+    for name in core.ensure_manifest().get("environments", {}):
+        core.stop_bridge(name)
+
+
+def stop_all():
+    stop_gui()
+    for name in core.ensure_manifest().get("environments", {}):
+        core.kill_env_processes(name)
+    print("[+] OpenCode Station остановлена.")
+
+
+def start_gui(port=DEFAULT_PORT, no_browser=False):
+    if ping(port):
+        print(f"[i] GUI уже работает: http://localhost:{port}")
+        if not no_browser:
+            open_browser(f"http://localhost:{port}")
+        return 0
+    stop_gui()
+    log = os.path.join(core.RUN_DIR, "gui.log")
+    os.makedirs(core.RUN_DIR, exist_ok=True)
+    args = [sys.executable, "-u", GUI_SERVER, "--port", str(port)]
+    with open(log, "ab") as fh:
+        proc = subprocess.Popen(args, stdout=fh, stderr=fh, stdin=subprocess.DEVNULL,
+                                start_new_session=True, cwd=core.STATION_ROOT,
+                                env={**os.environ, "OPENCODE_STATION_DATA": core.STATE_DIR})
+    for _ in range(80):
+        if ping(port, 0.5):
+            print(f"[+] GUI: http://localhost:{port}")
+            print(f"    Терминал: http://localhost:{TERMINAL_PORT}")
+            if not no_browser:
+                open_browser(f"http://localhost:{port}")
+            return 0
+        if proc.poll() is not None:
+            break
+        time.sleep(0.15)
+    print(f"[!] GUI не запустилась. Лог: {log}")
+    try:
+        with open(log, "r", encoding="utf-8", errors="replace") as fh:
+            print(fh.read()[-1200:])
+    except Exception:
+        pass
+    return 1
+
+
+def status(port=DEFAULT_PORT):
+    running = ping(port)
+    terminal = core.ttyd_status()
+    print(f"GUI      : {'ONLINE http://localhost:' + str(port) if running else 'OFFLINE'}")
+    print(f"Terminal : {'ONLINE http://localhost:' + str(terminal.get('port', 7681)) if terminal.get('running') else 'OFFLINE'}")
+    print(f"Platform : {core.PLATFORM}")
+    print(f"Data dir : {core.STATE_DIR}")
+    print(f"ttyd     : {core.find_ttyd() or 'not found'}")
+    print(f"opencode : {core.find_opencode_bin() or 'not found'}")
+    return 0 if running else 1
+
+
+def main(argv):
+    cmd = argv[0] if argv else "status"
+    port = DEFAULT_PORT
+    no_browser = "--no-browser" in argv
+    if "--port" in argv:
+        try:
+            port = int(argv[argv.index("--port") + 1])
+        except Exception:
+            pass
+    if cmd in ("start", "up"):
+        return start_gui(port, no_browser)
+    if cmd in ("stop", "down"):
+        stop_all()
+        return 0
+    if cmd == "restart":
+        stop_all()
+        time.sleep(0.4)
+        return start_gui(port, no_browser)
+    if cmd == "status":
+        return status(port)
+    print("Использование: stationctl {start|stop|restart|status} [--port 7682] [--no-browser]")
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
