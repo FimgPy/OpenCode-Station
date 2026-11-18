@@ -17,12 +17,16 @@ DEFAULT_PORT = int(os.environ.get("OPENCODE_STATION_PORT", "7682"))
 TERMINAL_PORT = int(os.environ.get("OPENCODE_STATION_TERMINAL_PORT", "7681"))
 
 
-def ping(port=DEFAULT_PORT, timeout=1.0):
+def ping_info(port=DEFAULT_PORT, timeout=1.0):
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/ping", timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8")).get("app") == core.APP_NAME
+            return json.loads(resp.read().decode("utf-8"))
     except Exception:
-        return False
+        return {}
+
+
+def ping(port=DEFAULT_PORT, timeout=1.0):
+    return ping_info(port, timeout).get("app") == core.APP_NAME
 
 
 def open_browser(url):
@@ -67,11 +71,15 @@ def stop_all():
 
 
 def start_gui(port=DEFAULT_PORT, no_browser=False):
-    if ping(port):
-        print(f"[i] GUI уже работает: http://localhost:{port}")
-        if not no_browser:
-            open_browser(f"http://localhost:{port}")
-        return 0
+    info = ping_info(port)
+    if info.get("app") == core.APP_NAME:
+        running_version = str(info.get("version") or "")
+        if running_version == core.APP_VERSION:
+            print(f"[i] GUI уже работает: http://localhost:{port} (v{running_version})")
+            if not no_browser:
+                open_browser(f"http://localhost:{port}")
+            return 0
+        print(f"[i] Обнаружена версия v{running_version or '?'}, ожидается v{core.APP_VERSION}: перезапуск...")
     stop_gui()
     log = os.path.join(core.RUN_DIR, "gui.log")
     os.makedirs(core.RUN_DIR, exist_ok=True)

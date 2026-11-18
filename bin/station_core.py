@@ -31,7 +31,7 @@ import zlib
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 APP_NAME = "OpenCode Station"
-APP_VERSION = "3.0.0"
+APP_VERSION = "3.1.0"
 DEFAULT_NO_PROXY = "127.0.0.1,localhost,::1,local.home"
 
 # ---------------------------------------------------------------------------
@@ -183,7 +183,9 @@ def default_env_workspace() -> str:
 
 
 def export_root() -> str:
-    """Optional directory visible from the host OS (D:\\...\\workspace)."""
+    """Windows-visible mirror folder (WSL only)."""
+    if not IS_WSL:
+        return ""
     if _writable_dir(WINDOWS_WORKSPACE_ROOT):
         return WINDOWS_WORKSPACE_ROOT
     return ""

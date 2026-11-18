@@ -1,11 +1,43 @@
 #!/usr/bin/env bash
-# WSL installer for OpenCode Station (invoked by setup.bat as root).
+# Windows (WSL) installer for OpenCode Station.
+# This file is the Windows-only installer backend; macOS uses macos/install.sh.
 set -euo pipefail
 
-SRC="${1:-/mnt/d/OpenCode-Station_Package}"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -d "$HERE/bin" ]; then
+    DEFAULT_SRC="$HERE"
+else
+    DEFAULT_SRC="$(dirname "$HERE")"
+fi
+CHECK_ONLY=0
+if [ "${1:-}" = "--check" ]; then
+    CHECK_ONLY=1
+    shift
+fi
+SRC="${1:-$DEFAULT_SRC}"
 if [ ! -d "$SRC/bin" ]; then
     echo "[!] Source directory not found: $SRC" >&2
     exit 1
+fi
+
+if [ "$CHECK_ONLY" = "1" ]; then
+    echo "[*] Windows/WSL package check: $SRC"
+    rc=0
+    for f in bin/station_core.py bin/stationctl bin/env-mgr bin/opencode \
+             bin/opencode-gui-server bin/proxy-tool bin/myip \
+             config/cmd_mode.sh config/00-opencode-init.sh \
+             config/ttyd_index.html terminal.html; do
+        if [ -f "$SRC/$f" ]; then
+            echo "  [OK] $f"
+        else
+            echo "  [MISSING] $f" >&2
+            rc=1
+        fi
+    done
+    command -v python3 >/dev/null 2>&1 && echo "  [OK] python3" || { echo "  [MISSING] python3" >&2; rc=1; }
+    command -v curl >/dev/null 2>&1 && echo "  [OK] curl" || { echo "  [MISSING] curl" >&2; rc=1; }
+    [ "$rc" -eq 0 ] && echo "[OK] Package structure is valid." || echo "[!] Package is incomplete." >&2
+    exit "$rc"
 fi
 
 echo "[1/6] Installing system packages..."
